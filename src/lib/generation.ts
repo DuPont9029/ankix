@@ -1,5 +1,6 @@
 import "server-only";
-import { generateFlashcards, type SourceFile } from "./gemini";
+import { OCCLUSION_IMAGE_TYPES } from "./files";
+import { generateFlashcards, generateImageOcclusions, type GenerationResult, type SourceFile } from "./gemini";
 import { appendCards, getDeck, getMaterialsByIds, listCards, setDeckStatus, updateDeckMeta } from "./repo";
 import { getObjectBytes } from "./s3";
 import type { GenerationOptions } from "./types";
@@ -13,21 +14,34 @@ export async function runGeneration(deckId: string, opts: GenerationOptions, api
     const deck = await getDeck(deckId);
     if (!deck) return;
 
-    const materials = await getMaterialsByIds(opts.materialIds);
+    let materials = await getMaterialsByIds(opts.materialIds);
     if (materials.length === 0) throw new Error("The selected materials no longer exist.");
+    const existingCards = await listCards(deckId);
 
-    const sources: SourceFile[] = [];
+    if (opts.cardType === "image_occlusion") {
+      materials = materials.filter((m) => OCCLUSION_IMAGE_TYPES.includes(m.mimeType));
+      if (materials.length === 0) throw new Error("Image occlusion needs at least one image (PNG, JPG or WEBP) among the materials.");
+      // "Generate more": salta le immagini che hanno già una card, per non creare duplicati.
+      const done = new Set(existingCards.filter((c) => c.type === "image_occlusion").map((c) => c.imageMaterialId));
+      materials = materials.filter((m) => !done.has(m.id));
+      if (materials.length === 0) throw new Error("Every selected image already has an image occlusion card in this deck.");
+    }
+
+    const sources: (SourceFile & { materialId: string })[] = [];
     for (const m of materials) {
       try {
-        sources.push({ title: m.title, filename: m.filename, mimeType: m.mimeType, bytes: await getObjectBytes(m.s3Key) });
+        sources.push({ title: m.title, filename: m.filename, mimeType: m.mimeType, bytes: await getObjectBytes(m.s3Key), materialId: m.id });
       } catch (err) {
         console.error("[s3] download failed", m.s3Key, err);
         throw new Error(`Could not download "${m.title}" from the bucket.`);
       }
     }
 
-    const existing = (await listCards(deckId)).map((c) => c.front);
-    const result = await generateFlashcards(sources, opts, deck.subject, apiKey, existing);
+    const existing = existingCards.map((c) => c.front);
+    const result: GenerationResult =
+      opts.cardType === "image_occlusion"
+        ? await generateImageOcclusions(sources, opts, deck.subject, apiKey)
+        : await generateFlashcards(sources, opts, deck.subject, apiKey, existing);
 
     // Il mazzo potrebbe essere stato eliminato durante la generazione.
     if (!(await getDeck(deckId))) return;

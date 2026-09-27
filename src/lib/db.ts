@@ -99,6 +99,8 @@ const SCHEMA = [
     back VARCHAR NOT NULL DEFAULT '',
     extra VARCHAR NOT NULL DEFAULT '',
     tags VARCHAR NOT NULL DEFAULT '[]',
+    image_material_id VARCHAR,
+    occlusions VARCHAR NOT NULL DEFAULT '[]',
     created_at BIGINT NOT NULL,
     updated_at BIGINT NOT NULL
   )`,

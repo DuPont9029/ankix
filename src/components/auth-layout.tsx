@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { Logo } from "./logo";
+import { SiteFooter } from "./site-footer";
 
 /** Impaginazione per accesso e onboarding: foglio di quaderno centrato su carta rigata. */
 export function AuthLayout({ className, children }: { className: string; children: ReactNode }) {
@@ -20,6 +21,7 @@ export function AuthLayout({ className, children }: { className: string; childre
           </p>
         </div>
         <div className="rounded-lg border border-line bg-card p-6 shadow-raised sm:p-8">{children}</div>
+        <SiteFooter className="mt-6" />
       </div>
     </div>
   );

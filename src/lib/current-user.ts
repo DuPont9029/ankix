@@ -30,12 +30,24 @@ async function upsertUser(email: string, name: string, image: string | null): Pr
         `INSERT INTO users (id, email, name, image, joined_at, created_at) VALUES ($1, $2, $3, $4, NULL, $5)`,
         [id, normalized, displayName, image, Date.now()],
       );
-      // Migrazione: mazzi e materiali creati prima dell'accesso con account (senza proprietario)
-      // vengono assegnati al primo utente con lo stesso nome.
-      await tx.exec(`UPDATE decks SET created_by_id = $1 WHERE created_by_id IS NULL AND created_by = $2`, [id, displayName]);
-      await tx.exec(`UPDATE materials SET uploaded_by_id = $1 WHERE uploaded_by_id IS NULL AND uploaded_by = $2`, [id, displayName]);
     }
     const [row] = await tx.query<UserRow>(`SELECT id, email, name, image, joined_at FROM users WHERE email = $1`, [normalized]);
+
+    // Migrazione: mazzi e materiali creati prima dell'accesso con account (senza proprietario) vanno
+    // all'utente con lo stesso nome; se non c'è corrispondenza li prende un amministratore.
+    // Prima si controlla in sola lettura, così di norma non si scrive nulla.
+    const admin = isAdminEmail(normalized);
+    const [orphans] = await tx.query<{ d: unknown; m: unknown }>(
+      `SELECT (SELECT count(*) FROM decks WHERE created_by_id IS NULL AND (created_by = $1 OR $2)) AS d,
+              (SELECT count(*) FROM materials WHERE uploaded_by_id IS NULL AND (uploaded_by = $1 OR $2)) AS m`,
+      [displayName, admin],
+    );
+    if (Number(orphans.d) > 0) {
+      await tx.exec(`UPDATE decks SET created_by_id = $1 WHERE created_by_id IS NULL AND (created_by = $2 OR $3)`, [row.id, displayName, admin]);
+    }
+    if (Number(orphans.m) > 0) {
+      await tx.exec(`UPDATE materials SET uploaded_by_id = $1 WHERE uploaded_by_id IS NULL AND (uploaded_by = $2 OR $3)`, [row.id, displayName, admin]);
+    }
     if (row.name !== displayName || (row.image ?? null) !== image) {
       await tx.exec(`UPDATE users SET name = $1, image = $2 WHERE id = $3`, [displayName, image, row.id]);
       return { ...row, name: displayName, image };

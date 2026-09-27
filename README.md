@@ -7,6 +7,7 @@ Sito per una classe di Medicina che trasforma i materiali del corso (PDF, immagi
 - **Mazzi privati di default**: ogni mazzo è visibile solo a chi l'ha creato finché non lo rende pubblico; gli altri possono studiarlo, esportarlo o salvarne una copia privata.
 - **Chiave Gemini personale**: ogni studente inserisce la propria chiave in *Impostazioni*; le generazioni consumano la sua quota.
 - **Generazione AI**: Gemini legge i materiali e crea card *domanda/risposta* e *cloze* pensate per gli esami di Medicina, con livello, numero di card, lingua e istruzioni personalizzabili.
+- **Image occlusion**: dalle immagini (tavole anatomiche, vetrini, schemi) Gemini individua etichette e strutture e crea card con maschere; si possono correggere e disegnare a mano. L'export usa il note type *Image Occlusion* di Anki (serve Anki 23.10+ / AnkiMobile / AnkiDroid aggiornati) con le immagini incluse nel pacchetto.
 - **Revisione**: si possono modificare, aggiungere ed eliminare card, generarne altre senza duplicati e fare un ripasso direttamente nel browser.
 - **Export**: pacchetto `.apkg` pronto da importare in Anki (mazzo `Medicina::<Materia>::<Titolo>`, tag per argomento), oppure CSV.
 - **Database sul bucket S3** (come nel progetto mailsender): tabelle Parquet in `<S3_PREFIX>/db/` lette con DuckDB, con lock distribuito per funzionare su più istanze Vercel in parallelo.

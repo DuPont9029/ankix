@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useState, type ReactNode } from "react";
 import { authClient } from "@/lib/auth-client";
 import { Logo } from "./logo";
+import { SiteFooter } from "./site-footer";
 import { cn } from "./styles";
 
 const NAV = [
@@ -168,7 +169,10 @@ export function AppShell({
       </header>
 
       <main className="px-4 pt-6 pb-28 sm:px-6 lg:ml-64 lg:px-9 lg:pt-8 lg:pb-14">
-        <div className="mx-auto w-full max-w-[1150px]">{children}</div>
+        <div className="mx-auto w-full max-w-[1150px]">
+          {children}
+          <SiteFooter className="mt-14 border-t border-line pt-6" />
+        </div>
       </main>
 
       {/* Tab bar mobile */}

@@ -4,6 +4,7 @@ import { ArrowLeft, Check, ChevronLeft, RotateCcw, Shuffle, Trophy, X } from "lu
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CardHtml, ClozeHtml } from "@/components/cards/card-html";
+import { OcclusionView } from "@/components/cards/occlusion-view";
 import { Button, EmptyState, SubjectBadge, buttonClass, cn } from "@/components/ui";
 import { clozeNumbers } from "@/lib/cloze";
 import type { Card, Deck } from "@/lib/types";
@@ -14,7 +15,9 @@ function expand(cards: Card[]): Item[] {
   return cards.flatMap((card): Item[] =>
     card.type === "cloze"
       ? clozeNumbers(card.front).map((n) => ({ key: `${card.id}:${n}`, card, cloze: n }))
-      : [{ key: card.id, card, cloze: null }],
+      : card.type === "image_occlusion"
+        ? card.occlusions.map((o, i) => ({ key: `${card.id}:${o.id}`, card, cloze: i + 1 }))
+        : [{ key: card.id, card, cloze: null }],
   );
 }
 
@@ -29,6 +32,23 @@ function shuffled<T>(arr: T[]): T[] {
 
 function Face({ item, side }: { item: Item; side: "front" | "back" }) {
   const { card, cloze } = item;
+  if (card.type === "image_occlusion" && card.imageMaterialId && cloze !== null) {
+    const active = cloze - 1;
+    return (
+      <div className="w-full space-y-4">
+        {card.front && <p className="font-serif text-[17px] leading-7 text-ink">{card.front}</p>}
+        <div className="flex justify-center">
+          <OcclusionView materialId={card.imageMaterialId} occlusions={card.occlusions} mode={{ kind: "study", active, revealed: side === "back" }} />
+        </div>
+        {side === "back" && (
+          <>
+            <p className="text-[17px] font-semibold text-heading">{card.occlusions[active]?.label}</p>
+            {card.extra && <CardHtml html={card.extra} className="border-l-2 border-accent pl-3 text-left text-[13px] text-ink-muted" />}
+          </>
+        )}
+      </div>
+    );
+  }
   if (card.type === "cloze") {
     return (
       <div className="space-y-5">
@@ -188,7 +208,13 @@ export function StudyView({ deck, cards }: { deck: Deck; cards: Card[] }) {
                     )}
                   >
                     <span className={cn("eyebrow mb-5", side === "back" ? "text-accent" : "text-ink-faint")}>
-                      {side === "front" ? (current.card.type === "cloze" ? `Cloze ${current.cloze}` : "Question") : "Answer"}
+                      {side === "front"
+                        ? current.card.type === "cloze"
+                          ? `Cloze ${current.cloze}`
+                          : current.card.type === "image_occlusion"
+                            ? `Mask ${current.cloze} of ${current.card.occlusions.length}`
+                            : "Question"
+                        : "Answer"}
                     </span>
                     <Face item={current} side={side} />
                   </div>

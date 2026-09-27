@@ -1,4 +1,5 @@
 import "server-only";
+import { randomUUID } from "node:crypto";
 import { ApiError, FileState, GoogleGenAI, type Part } from "@google/genai";
 import { z } from "zod";
 import { hasCloze } from "./cloze";
@@ -6,7 +7,7 @@ import { env } from "./env";
 import { isTextMime } from "./files";
 import type { CardInput } from "./repo";
 import { sanitizeField, sanitizeTags } from "./sanitize";
-import type { GenerationOptions } from "./types";
+import type { GenerationOptions, Occlusion } from "./types";
 
 export type SourceFile = {
   title: string;
@@ -99,6 +100,7 @@ const CARD_TYPE: Record<GenerationOptions["cardType"], string> = {
   cloze: 'Use ONLY "cloze" cards (text with deletions).',
   mixed:
     'Use a mix: about 60% "basic" for conceptual questions and 40% "cloze" for definitions, short lists, values and terminology.',
+  image_occlusion: "", // generato con generateImageOcclusions
 };
 
 function systemInstruction(language: GenerationOptions["language"]): string {
@@ -349,5 +351,154 @@ export async function generateFlashcards(
     for (const name of uploaded) {
       ai.files.delete({ name }).catch(() => undefined);
     }
+  }
+}
+
+// ---------- Image occlusion ----------
+
+export type OcclusionImage = { title: string; filename: string; mimeType: string; bytes: Uint8Array; materialId: string };
+
+const OCCLUSION_SCHEMA = {
+  type: "object",
+  properties: {
+    header: { type: "string", description: "Short prompt shown above the image, e.g. 'Label the chambers and valves of the heart'" },
+    back_extra: { type: "string", description: "Optional short note shown on the back. Can be empty." },
+    tags: { type: "array", items: { type: "string" }, description: "1-3 topic tags" },
+    masks: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          label: { type: "string", description: "The term hidden by the mask (the answer)" },
+          box_2d: {
+            type: "array",
+            items: { type: "integer" },
+            description: "Bounding box [ymin, xmin, ymax, xmax] normalized to 0-1000",
+          },
+        },
+        required: ["label", "box_2d"],
+      },
+    },
+  },
+  required: ["header", "back_extra", "tags", "masks"],
+};
+
+const OcclusionResponse = z.object({
+  header: z.string().catch(""),
+  back_extra: z.string().catch(""),
+  tags: z.array(z.string()).catch([]),
+  masks: z.array(z.object({ label: z.string().catch(""), box_2d: z.array(z.number()).catch([]) })).catch([]),
+});
+
+function occlusionPrompt(opts: GenerationOptions, subject: string, image: OcclusionImage, maxMasks: number): string {
+  const lang = opts.language === "it" ? "ITALIAN" : "ENGLISH";
+  return `Subject: ${subject}
+Image: "${image.title}" (${image.filename})
+
+Create an Anki IMAGE OCCLUSION card for this medical image (anatomical plate, histology slide, diagram, chart…).
+1. Find the text labels written on the image (names of structures, often connected by leader lines). For each one,
+   return a mask whose box_2d tightly covers THAT TEXT LABEL, so that the student has to recall the term.
+2. If the image has no written labels, instead mask the most important structures themselves (only if you are sure of their name).
+3. Never mask legends, titles, scale bars or decorative elements. Masks must not overlap.
+4. At most ${maxMasks} masks, choosing the most high-yield structures. Skip anything illegible or uncertain.
+5. "label" = the exact term hidden by the mask, written in ${lang} with correct medical terminology (translate the label if needed).
+6. "header" = a short task in ${lang}, e.g. "Identify the labelled structures of the brachial plexus".
+7. "back_extra" = an optional one-line clinical or anatomical note in ${lang}; empty string if not useful.
+8. box_2d = [ymin, xmin, ymax, xmax], integers normalized to 0-1000 relative to the image size.${
+    opts.focus.trim() ? `\n\nAdditional instructions from the student (follow them if compatible with the rules):\n"""${opts.focus.trim()}"""` : ""
+  }
+
+Reply only with a JSON object matching the requested schema.`;
+}
+
+/** Converte i box di Gemini (0-1000, [ymin, xmin, ymax, xmax]) in maschere relative 0-1 con un piccolo margine. */
+export function boxesToOcclusions(masks: { label: string; box_2d: number[] }[], maxMasks: number): Occlusion[] {
+  const out: Occlusion[] = [];
+  const seen = new Set<string>();
+  for (const m of masks) {
+    if (m.box_2d.length !== 4) continue;
+    let [ymin, xmin, ymax, xmax] = m.box_2d.map((v) => Math.min(Math.max(v, 0), 1000) / 1000);
+    if (ymax < ymin) [ymin, ymax] = [ymax, ymin];
+    if (xmax < xmin) [xmin, xmax] = [xmax, xmin];
+    const pad = 0.004;
+    const x = Math.max(0, xmin - pad);
+    const y = Math.max(0, ymin - pad);
+    const w = Math.min(1, xmax + pad) - x;
+    const h = Math.min(1, ymax + pad) - y;
+    if (w < 0.008 || h < 0.008 || w * h > 0.5) continue; // troppo piccola o grande quasi quanto l'immagine
+    const label = sanitizeField(m.label).replace(/<[^>]+>/g, "").trim().slice(0, 200);
+    if (!label) continue;
+    const key = `${label.toLowerCase()}|${Math.round(x * 100)}|${Math.round(y * 100)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ id: randomUUID().slice(0, 8), label, x, y, w, h });
+    if (out.length >= maxMasks) break;
+  }
+  return out;
+}
+
+/** Una card image occlusion per ogni immagine (una maschera = una card in Anki). */
+export async function generateImageOcclusions(
+  images: OcclusionImage[],
+  opts: GenerationOptions,
+  subject: string,
+  apiKey: string,
+): Promise<GenerationResult> {
+  const release = await acquire(apiKey);
+  const ai = createAi(apiKey);
+  const model = env.geminiModel;
+  const perImage = Math.max(3, Math.min(30, Math.ceil(opts.cardCount / Math.max(1, images.length))));
+  const cards: CardInput[] = [];
+  try {
+    for (const image of images) {
+      let lastError: unknown;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const response = await ai.models.generateContent({
+            model,
+            contents: [
+              {
+                role: "user",
+                parts: [
+                  { inlineData: { mimeType: image.mimeType, data: Buffer.from(image.bytes).toString("base64") } },
+                  { text: occlusionPrompt(opts, subject, image, perImage) },
+                ],
+              },
+            ],
+            config: { responseMimeType: "application/json", responseJsonSchema: OCCLUSION_SCHEMA, temperature: 0.2 },
+          });
+          const text = response.text;
+          if (!text) throw new Error("Gemini returned an empty response.");
+          const parsed = OcclusionResponse.parse(extractJson(text));
+          const occlusions = boxesToOcclusions(parsed.masks, perImage);
+          if (occlusions.length > 0) {
+            cards.push({
+              type: "image_occlusion",
+              front: sanitizeField(parsed.header).replace(/<[^>]+>/g, "").slice(0, 300) || image.title,
+              back: "",
+              extra: sanitizeField(parsed.back_extra),
+              tags: sanitizeTags(parsed.tags),
+              imageMaterialId: image.materialId,
+              occlusions,
+            });
+          }
+          lastError = undefined;
+          break;
+        } catch (err) {
+          lastError = err;
+          if (!isRetryable(err) || attempt === 2) break;
+          await new Promise((r) => setTimeout(r, 3000 * (attempt + 1)));
+        }
+      }
+      if (lastError) throw friendlyError(lastError);
+    }
+    if (cards.length === 0) {
+      throw new Error("Gemini could not find any labels or structures to mask in the selected images.");
+    }
+    return { title: images.length === 1 ? images[0].title : "", description: "", cards, model };
+  } catch (err) {
+    throw friendlyError(err);
+  } finally {
+    release();
   }
 }

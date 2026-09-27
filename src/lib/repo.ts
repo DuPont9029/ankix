@@ -1,7 +1,7 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
 import { exec, query, refresh, transaction, type Row } from "./db";
-import type { Card, CardType, Deck, DeckSource, DeckStatus, GenerationOptions, Material } from "./types";
+import type { Card, CardType, Deck, DeckSource, DeckStatus, GenerationOptions, Material, Occlusion } from "./types";
 
 const num = (v: unknown) => Number(v ?? 0);
 const str = (v: unknown) => (v == null ? "" : String(v));
@@ -193,11 +193,13 @@ function toCard(r: Row): Card {
     id: str(r.id),
     deckId: str(r.deck_id),
     position: num(r.position),
-    type: (str(r.type) === "cloze" ? "cloze" : "basic") as CardType,
+    type: (["cloze", "image_occlusion"].includes(str(r.type)) ? str(r.type) : "basic") as CardType,
     front: str(r.front),
     back: str(r.back),
     extra: str(r.extra),
     tags: parseJson<string[]>(r.tags, []),
+    imageMaterialId: r.image_material_id == null ? null : str(r.image_material_id),
+    occlusions: parseJson<Occlusion[]>(r.occlusions, []),
     createdAt: num(r.created_at),
     updatedAt: num(r.updated_at),
   };
@@ -209,6 +211,8 @@ export type CardInput = {
   back: string;
   extra: string;
   tags: string[];
+  imageMaterialId?: string | null;
+  occlusions?: Occlusion[];
 };
 
 export async function listCards(deckId: string): Promise<Card[]> {
@@ -232,11 +236,23 @@ export async function appendCards(deckId: string, inputs: CardInput[]): Promise<
     const now = Date.now();
     const created: Card[] = [];
     for (const input of inputs) {
-      const card: Card = { id: newId(), deckId, position: position++, ...input, createdAt: now, updatedAt: now };
+      const card: Card = {
+        id: newId(),
+        deckId,
+        position: position++,
+        ...input,
+        imageMaterialId: input.imageMaterialId ?? null,
+        occlusions: input.occlusions ?? [],
+        createdAt: now,
+        updatedAt: now,
+      };
       await tx.exec(
-        `INSERT INTO cards (id, deck_id, position, type, front, back, extra, tags, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-        [card.id, deckId, card.position, card.type, card.front, card.back, card.extra, JSON.stringify(card.tags), now, now],
+        `INSERT INTO cards (id, deck_id, position, type, front, back, extra, tags, image_material_id, occlusions, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+        [
+          card.id, deckId, card.position, card.type, card.front, card.back, card.extra, JSON.stringify(card.tags),
+          card.imageMaterialId, JSON.stringify(card.occlusions), now, now,
+        ],
       );
       created.push(card);
     }
@@ -249,9 +265,12 @@ export async function updateCard(deckId: string, cardId: string, input: CardInpu
   const now = Date.now();
   await transaction(async (tx) => {
     await tx.exec(
-      `UPDATE cards SET type = $1, front = $2, back = $3, extra = $4, tags = $5, updated_at = $6
-       WHERE id = $7 AND deck_id = $8`,
-      [input.type, input.front, input.back, input.extra, JSON.stringify(input.tags), now, cardId, deckId],
+      `UPDATE cards SET type = $1, front = $2, back = $3, extra = $4, tags = $5, image_material_id = $6, occlusions = $7, updated_at = $8
+       WHERE id = $9 AND deck_id = $10`,
+      [
+        input.type, input.front, input.back, input.extra, JSON.stringify(input.tags),
+        input.imageMaterialId ?? null, JSON.stringify(input.occlusions ?? []), now, cardId, deckId,
+      ],
     );
     await tx.exec(`UPDATE decks SET updated_at = $1 WHERE id = $2`, [now, deckId]);
   });
@@ -281,7 +300,15 @@ export async function copyDeck(source: Deck, owner: { id: string; name: string }
   if (cards.length) {
     await appendCards(
       id,
-      cards.map((c) => ({ type: c.type, front: c.front, back: c.back, extra: c.extra, tags: c.tags })),
+      cards.map((c) => ({
+        type: c.type,
+        front: c.front,
+        back: c.back,
+        extra: c.extra,
+        tags: c.tags,
+        imageMaterialId: c.imageMaterialId,
+        occlusions: c.occlusions,
+      })),
     );
   }
   return id;

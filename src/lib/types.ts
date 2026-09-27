@@ -1,4 +1,14 @@
-export type CardType = "basic" | "cloze";
+export type CardType = "basic" | "cloze" | "image_occlusion";
+
+/** Maschera di image occlusion: coordinate relative all'immagine (0–1). */
+export type Occlusion = {
+  id: string;
+  label: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+};
 export type DeckStatus = "generating" | "ready" | "error";
 
 export type Material = {
@@ -15,7 +25,7 @@ export type Material = {
 
 export type GenerationOptions = {
   cardCount: number;
-  cardType: "basic" | "cloze" | "mixed";
+  cardType: "basic" | "cloze" | "mixed" | "image_occlusion";
   difficulty: "base" | "intermedio" | "avanzato";
   language: "it" | "en";
   focus: string;
@@ -54,6 +64,9 @@ export type Card = {
   back: string;
   extra: string;
   tags: string[];
+  /** Solo image occlusion: materiale (immagine) e maschere */
+  imageMaterialId: string | null;
+  occlusions: Occlusion[];
   createdAt: number;
   updatedAt: number;
 };

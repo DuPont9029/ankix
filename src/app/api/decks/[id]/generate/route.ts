@@ -4,7 +4,8 @@ import { requireGeminiKey } from "@/lib/gemini-key";
 import { runGeneration } from "@/lib/generation";
 import { loadDeck } from "@/lib/decks";
 import { handle, HttpError, readJson, requireUser } from "@/lib/http";
-import { getMaterialsByIds, setDeckStatus } from "@/lib/repo";
+import { OCCLUSION_IMAGE_TYPES } from "@/lib/files";
+import { getMaterialsByIds, listCards, setDeckStatus } from "@/lib/repo";
 import type { GenerationOptions } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -26,6 +27,14 @@ export const POST = handle(async (req: NextRequest, ctx: RouteContext<"/api/deck
 
   const available = await getMaterialsByIds(deck.options.materialIds);
   if (available.length === 0) throw new HttpError(400, "The source materials have been deleted.");
+
+  if (deck.options.cardType === "image_occlusion") {
+    const done = new Set((await listCards(id)).filter((c) => c.type === "image_occlusion").map((c) => c.imageMaterialId));
+    const remaining = available.filter((m) => OCCLUSION_IMAGE_TYPES.includes(m.mimeType) && !done.has(m.id));
+    if (remaining.length === 0) {
+      throw new HttpError(400, "Every image of this deck already has an image occlusion card. Edit the masks or create a new deck with other images.");
+    }
+  }
 
   const options: GenerationOptions = {
     ...deck.options,

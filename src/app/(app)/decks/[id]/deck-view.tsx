@@ -32,6 +32,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { toast } from "sonner";
 import { CardEditorForm, CardEditorModal } from "@/components/cards/card-editor";
 import { CardHtml, ClozeMarkedHtml } from "@/components/cards/card-html";
+import { OcclusionView } from "@/components/cards/occlusion-view";
 import { DeckStatusPill } from "@/components/deck-card";
 import { GeminiKeyNotice } from "@/components/gemini-key-notice";
 import { RelativeTime } from "@/components/relative-time";
@@ -165,11 +166,15 @@ function CardRow({
         <span className="text-[13px] font-semibold text-ink-muted tabular-nums">#{index}</span>
         <span
           className={cn(
-            "rounded-[4px] px-1.5 py-0.5 text-[11px] font-bold tracking-[0.04em]",
-            card.type === "cloze" ? "bg-indigo-50 text-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-300" : "bg-muted text-ink",
+            "shrink-0 rounded-[4px] px-1.5 py-0.5 text-[11px] font-bold tracking-[0.04em] whitespace-nowrap",
+            card.type === "cloze"
+              ? "bg-indigo-50 text-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-300"
+              : card.type === "image_occlusion"
+                ? "bg-amber-50 text-amber-900 dark:bg-amber-950/60 dark:text-amber-300"
+                : "bg-muted text-ink",
           )}
         >
-          {card.type === "cloze" ? "CLOZE" : "BASIC"}
+          {card.type === "cloze" ? "CLOZE" : card.type === "image_occlusion" ? "IMAGE OCCLUSION" : "BASIC"}
         </span>
         <span className="flex min-w-0 flex-wrap gap-1">
           {card.tags.map((t) => (
@@ -190,7 +195,27 @@ function CardRow({
         )}
       </div>
 
-      {card.type === "cloze" ? (
+      {card.type === "image_occlusion" && card.imageMaterialId ? (
+        <div className="mt-3 rounded-md bg-sunken p-4">
+          {card.front && <p className="mb-3 font-serif text-[17px] leading-7 text-ink">{card.front}</p>}
+          <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_220px]">
+            <div className="flex justify-center">
+              <OcclusionView materialId={card.imageMaterialId} occlusions={card.occlusions} mode={{ kind: "overview" }} />
+            </div>
+            <div>
+              <p className="eyebrow mb-2 text-accent">Hidden terms ({card.occlusions.length} cards)</p>
+              <ol className="space-y-1 text-[13px] text-ink">
+                {card.occlusions.map((o, i) => (
+                  <li key={o.id} className="flex gap-2">
+                    <span className="grid size-5 shrink-0 place-items-center rounded-[3px] bg-[#ffeba2] text-[10px] font-bold text-[#212121]">{i + 1}</span>
+                    <span className="min-w-0 break-words">{o.label || <span className="text-ink-faint italic">no label</span>}</span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          </div>
+        </div>
+      ) : card.type === "cloze" ? (
         <div className="mt-3 rounded-md bg-sunken p-4">
           <p className="eyebrow mb-2 text-ink-muted">Cloze text</p>
           <ClozeMarkedHtml text={card.front} className="font-serif text-[17px] leading-8 text-ink" />
@@ -242,7 +267,7 @@ export function DeckView({
   const [deck, setDeck] = useState(initialDeck);
   const [cards, setCards] = useState(initialCards);
   const [query, setQuery] = useState("");
-  const [typeFilter, setTypeFilter] = useState<"" | "basic" | "cloze">("");
+  const [typeFilter, setTypeFilter] = useState<"" | "basic" | "cloze" | "image_occlusion">("");
   const [editor, setEditor] = useState<EditorState>({ mode: "closed" });
   const [toDeleteCard, setToDeleteCard] = useState<Card | null>(null);
   const [deleteDeckOpen, setDeleteDeckOpen] = useState(false);
@@ -279,11 +304,18 @@ export function DeckView({
   }, [deck.status, refresh]);
 
   const indexOf = useMemo(() => new Map(cards.map((c, i) => [c.id, i + 1])), [cards]);
-  const counts = useMemo(() => ({ basic: cards.filter((c) => c.type === "basic").length, cloze: cards.filter((c) => c.type === "cloze").length }), [cards]);
+  const counts = useMemo(
+    () => ({
+      basic: cards.filter((c) => c.type === "basic").length,
+      cloze: cards.filter((c) => c.type === "cloze").length,
+      occlusion: cards.filter((c) => c.type === "image_occlusion").length,
+    }),
+    [cards],
+  );
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return cards.filter(
-      (c) => (!typeFilter || c.type === typeFilter) && (!q || `${c.front} ${c.back} ${c.extra} ${c.tags.join(" ")}`.toLowerCase().includes(q)),
+      (c) => (!typeFilter || c.type === typeFilter) && (!q || `${c.front} ${c.back} ${c.extra} ${c.tags.join(" ")} ${c.occlusions.map((x) => x.label).join(" ")}`.toLowerCase().includes(q)),
     );
   }, [cards, query, typeFilter]);
 
@@ -486,7 +518,8 @@ export function DeckView({
           <div className="rounded-lg border border-line bg-card p-4 shadow-card">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <p className="text-[13px] text-ink-muted">
-                <span className="font-semibold text-ink">{cards.length} cards</span> · {counts.basic} question/answer · {counts.cloze} cloze
+                <span className="font-semibold text-ink">{cards.length} {cards.length === 1 ? "card" : "cards"}</span> · {counts.basic} question/answer · {counts.cloze} cloze
+                {counts.occlusion > 0 && ` · ${counts.occlusion} image occlusion`}
               </p>
               {isOwner && (
                 <div className="flex items-center gap-2">
@@ -523,6 +556,7 @@ export function DeckView({
                     ["", `All (${cards.length})`],
                     ["basic", `Q/A (${counts.basic})`],
                     ["cloze", `Cloze (${counts.cloze})`],
+                    ...(counts.occlusion > 0 ? ([["image_occlusion", `Image (${counts.occlusion})`]] as const) : []),
                   ] as const).map(([v, label]) => (
                     <button
                       key={v}

@@ -10,6 +10,46 @@ import type { Card, Deck } from "./types";
 
 const BASIC_MODEL_ID = 1718200000201;
 const CLOZE_MODEL_ID = 1718200000202;
+const OCCLUSION_MODEL_ID = 1718200000203;
+
+// Template del note type "Image Occlusion" ufficiale di Anki (23.10+): il rendering delle maschere è fatto
+// da anki.imageOcclusion (desktop, AnkiMobile e AnkiDroid aggiornati).
+const OCCLUSION_QFMT = `{{#Header}}<div>{{Header}}</div>{{/Header}}
+<div style="display: none">{{cloze:Occlusion}}</div>
+<div id="err"></div>
+<div id="image-occlusion-container">
+    {{Image}}
+    <canvas id="image-occlusion-canvas"></canvas>
+</div>
+<script>
+try {
+    anki.imageOcclusion.setup();
+} catch (exc) {
+    document.getElementById("err").innerHTML = \`Error loading image occlusion. Is your Anki version up to date?<br><br>\${exc}\`;
+}
+</script>
+`;
+const OCCLUSION_AFMT = `${OCCLUSION_QFMT}
+<div><button id="toggle">Toggle Masks</button></div>
+{{#Back Extra}}<div>{{Back Extra}}</div>{{/Back Extra}}
+`;
+const OCCLUSION_CSS = `#image-occlusion-canvas {
+    --inactive-shape-color: #ffeba2;
+    --active-shape-color: #ff8e8e;
+    --inactive-shape-border: 1px #212121;
+    --active-shape-border: 1px #212121;
+    --highlight-shape-color: #ff8e8e00;
+    --highlight-shape-border: 1px #ff8e8e;
+}
+
+.card {
+    font-family: arial;
+    font-size: 20px;
+    text-align: center;
+    color: black;
+    background-color: white;
+}
+`;
 
 const CSS = `.card {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -95,8 +135,40 @@ function models(deckId: number, nowSec: number) {
         },
       ],
     },
+    [OCCLUSION_MODEL_ID]: {
+      ...common,
+      id: OCCLUSION_MODEL_ID,
+      name: "Ankix Image Occlusion",
+      type: 1,
+      css: OCCLUSION_CSS,
+      originalStockKind: 6,
+      flds: [field("Occlusion", 0), field("Image", 1), field("Header", 2), field("Back Extra", 3), field("Comments", 4)],
+      tmpls: [{ name: "Image Occlusion", ord: 0, qfmt: OCCLUSION_QFMT, afmt: OCCLUSION_AFMT, bqfmt: "", bafmt: "", did: null }],
+    },
   };
 }
+
+/** Coordinata relativa nel formato di Anki (es. ".2839"). */
+function coord(value: number): string {
+  const v = Math.min(Math.max(value, 0), 1);
+  const s = v.toFixed(4).replace(/0+$/, "").replace(/\.$/, "");
+  return s.startsWith("0.") ? s.slice(1) : s === "" ? "0" : s;
+}
+
+/** Campo "Occlusion": una cancellatura cN per maschera (ogni maschera diventa una card). */
+export function occlusionField(card: Pick<Card, "occlusions">): string {
+  return card.occlusions
+    .map((o, i) => `{{c${i + 1}::image-occlusion:rect:left=${coord(o.x)}:top=${coord(o.y)}:width=${coord(o.w)}:height=${coord(o.h)}:oi=1}}`)
+    .join("<br>");
+}
+
+function imageExtension(mimeType: string): string {
+  if (mimeType === "image/png") return "png";
+  if (mimeType === "image/webp") return "webp";
+  return "jpg";
+}
+
+export type ImageLoader = (materialId: string) => Promise<{ bytes: Uint8Array; mimeType: string } | null>;
 
 function deckJson(id: number, name: string, desc: string, nowSec: number) {
   return {
@@ -188,7 +260,7 @@ export function exportTags(deck: Pick<Deck, "subject">, card: Pick<Card, "tags">
   return [...new Set([subjectTag, ...card.tags.map(sanitizeTag)].filter(Boolean))];
 }
 
-export async function buildApkg(deck: Deck, cards: Card[]): Promise<Uint8Array> {
+export async function buildApkg(deck: Deck, cards: Card[], loadImage?: ImageLoader): Promise<Uint8Array> {
   const SQL = await getSql();
   const db = new SQL.Database();
   try {
@@ -231,8 +303,44 @@ export async function buildApkg(deck: Deck, cards: Card[]): Promise<Uint8Array> 
     const cardStmt = db.prepare(`INSERT INTO cards VALUES (?, ?, ?, ?, ?, -1, 0, 0, ?, 0, 0, 0, 0, 0, 0, 0, 0, '')`);
     let nextId = nowMs;
     let due = 1;
+    // Media del pacchetto: file "0", "1"… e la mappa {"0": "nome-file.png"}
+    const mediaFiles: Record<string, Uint8Array> = {};
+    const mediaMap: Record<string, string> = {};
+    const mediaNames = new Map<string, string>();
     try {
       for (const card of cards) {
+        if (card.type === "image_occlusion") {
+          if (!card.imageMaterialId || card.occlusions.length === 0 || !loadImage) continue;
+          let fileName = mediaNames.get(card.imageMaterialId);
+          if (!fileName) {
+            const image = await loadImage(card.imageMaterialId);
+            if (!image) continue; // immagine eliminata: la card non si può esportare
+            fileName = `ankix-${card.imageMaterialId}.${imageExtension(image.mimeType)}`;
+            const index = String(Object.keys(mediaMap).length);
+            mediaFiles[index] = image.bytes;
+            mediaMap[index] = fileName;
+            mediaNames.set(card.imageMaterialId, fileName);
+          }
+          const occlusion = occlusionField(card);
+          const comments = card.occlusions.map((o, i) => `c${i + 1}: ${o.label}`).join("<br>");
+          const tags = exportTags(deck, card);
+          const noteId = nextId++;
+          noteStmt.run([
+            noteId,
+            guidFor(card.id),
+            OCCLUSION_MODEL_ID,
+            nowSec,
+            tags.length ? ` ${tags.join(" ")} ` : "",
+            [occlusion, `<img src="${fileName}">`, card.front, card.extra, comments].join("\x1f"),
+            stripHtml(occlusion),
+            checksum(stripHtml(occlusion)),
+          ]);
+          for (let ord = 0; ord < card.occlusions.length; ord++) {
+            cardStmt.run([nextId++, noteId, deckId, ord, nowSec, due]);
+          }
+          due++;
+          continue;
+        }
         const isCloze = card.type === "cloze";
         const ords = isCloze ? clozeNumbers(card.front).map((n) => n - 1) : [0];
         if (ords.length === 0) continue;
@@ -263,7 +371,8 @@ export async function buildApkg(deck: Deck, cards: Card[]): Promise<Uint8Array> 
     const collection = db.export();
     return zipSync({
       "collection.anki2": collection,
-      media: strToU8("{}"),
+      media: strToU8(JSON.stringify(mediaMap)),
+      ...mediaFiles,
     });
   } finally {
     db.close();
@@ -277,7 +386,15 @@ function csvCell(value: string): string {
 export function buildCsv(deck: Deck, cards: Card[]): string {
   const header = ["type", "front", "back", "extra", "tags"].map(csvCell).join(",");
   const rows = cards.map((c) =>
-    [c.type, c.front, c.back, c.extra, exportTags(deck, c).join(" ")].map(csvCell).join(","),
+    [
+      c.type,
+      c.front,
+      c.type === "image_occlusion" ? c.occlusions.map((o) => o.label).join("; ") : c.back,
+      c.extra,
+      exportTags(deck, c).join(" "),
+    ]
+      .map(csvCell)
+      .join(","),
   );
   return "\uFEFF" + [header, ...rows].join("\r\n") + "\r\n";
 }

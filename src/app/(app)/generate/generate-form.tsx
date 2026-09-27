@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowRight, Bot, Check, CheckCircle2, FolderOpen, Hourglass, Layers, ListChecks, NotebookPen, Search, SquareStack, Upload, X } from "lucide-react";
+import { ArrowRight, Bot, Check, CheckCircle2, FolderOpen, Hourglass, ImageIcon, Layers, ListChecks, NotebookPen, Search, SquareStack, Upload, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState, type FormEvent, type ReactNode } from "react";
@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import { GeminiKeyNotice } from "@/components/gemini-key-notice";
 import { Button, EmptyState, Input, Label, PageHeader, Select, Textarea, buttonClass, cn } from "@/components/ui";
 import { api } from "@/lib/client";
-import { formatBytes } from "@/lib/files";
+import { formatBytes, OCCLUSION_IMAGE_TYPES } from "@/lib/files";
 import { SUBJECTS } from "@/lib/subjects";
 import { subjectTone } from "@/lib/subjects-style";
 import type { GenerationOptions, Material } from "@/lib/types";
@@ -117,6 +117,9 @@ export function GenerateForm({
   }
 
   const totalSize = selected.reduce((sum, id) => sum + (byId.get(id)?.sizeBytes ?? 0), 0);
+  const isOcclusion = cardType === "image_occlusion";
+  const selectedImages = selected.filter((id) => OCCLUSION_IMAGE_TYPES.includes(byId.get(id)?.mimeType ?? "")).length;
+  const occlusionBlocked = isOcclusion && selectedImages === 0;
   const tone = subjectTone(subject);
 
   async function onSubmit(e: FormEvent) {
@@ -219,10 +222,18 @@ export function GenerateForm({
                     { value: "mixed", label: "Mixed", hint: "Q&A + cloze", icon: <Layers className="size-3.5" /> },
                     { value: "basic", label: "Q&A", hint: "Front and back", icon: <SquareStack className="size-3.5" /> },
                     { value: "cloze", label: "Cloze", hint: "Fill in the blanks", icon: <ListChecks className="size-3.5" /> },
+                    { value: "image_occlusion", label: "Image", hint: "Masks on images", icon: <ImageIcon className="size-3.5" /> },
                   ]}
                 />
+                {isOcclusion && (
+                  <p className={cn("mt-2 rounded-md px-3 py-2 text-xs", occlusionBlocked ? "bg-warning-soft text-warning" : "bg-primary-soft text-accent")}>
+                    {occlusionBlocked
+                      ? "Image occlusion uses the images among your materials (PNG, JPG or WEBP): select at least one."
+                      : `Gemini will mask the labels and structures on ${selectedImages} ${selectedImages === 1 ? "image" : "images"}; other materials are ignored. Requires Anki 23.10 or newer.`}
+                  </p>
+                )}
               </div>
-              <div>
+              <div className={cn(isOcclusion && "hidden")}>
                 <Label>Depth level</Label>
                 <Segmented
                   name="Level"
@@ -238,7 +249,7 @@ export function GenerateForm({
               <div>
                 <div className="mb-2 flex items-baseline justify-between">
                   <label htmlFor="count" className="eyebrow text-ink-muted">
-                    Number of flashcards
+                    {isOcclusion ? "Maximum masks (in total)" : "Number of flashcards"}
                   </label>
                   <span className="text-[13px] text-ink-muted">
                     <span className="font-serif text-[22px] font-semibold text-heading tabular-nums">{cardCount}</span> cards
@@ -373,8 +384,8 @@ export function GenerateForm({
                 </div>
               </div>
 
-              <Button type="submit" size="lg" className="w-full" loading={submitting} disabled={selected.length === 0 || !hasGeminiKey}>
-                Generate {cardCount} flashcards {!submitting && <ArrowRight className="size-4" />}
+              <Button type="submit" size="lg" className="w-full" loading={submitting} disabled={selected.length === 0 || !hasGeminiKey || occlusionBlocked}>
+                {isOcclusion ? "Generate image occlusion" : `Generate ${cardCount} flashcards`} {!submitting && <ArrowRight className="size-4" />}
               </Button>
               <p className="flex items-start gap-2 text-xs text-ink-muted">
                 <Hourglass className="mt-0.5 size-3.5 shrink-0" />

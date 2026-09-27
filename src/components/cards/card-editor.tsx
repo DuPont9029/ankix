@@ -1,16 +1,25 @@
 "use client";
 
-import { Code2, Eye, PenLine, X } from "lucide-react";
+import { Code2, Eye, ImageIcon, PenLine, Trash2, X } from "lucide-react";
 import { useRef, useState, type KeyboardEvent } from "react";
 import { toast } from "sonner";
 import { api, errorMessage } from "@/lib/client";
 import { clozeNumbers, hasCloze } from "@/lib/cloze";
 import { sanitizeClient } from "@/lib/sanitize-client";
-import type { Card, CardType } from "@/lib/types";
-import { Button, Label, Modal, Textarea, cn } from "../ui";
+import type { Card, CardType, Occlusion } from "@/lib/types";
+import { Button, Input, Label, Modal, Textarea, cn } from "../ui";
 import { CardHtml, ClozeHtml } from "./card-html";
+import { OcclusionCanvas, OcclusionView } from "./occlusion-view";
 
-type Draft = { type: CardType; front: string; back: string; extra: string; tags: string[] };
+type Draft = {
+  type: CardType;
+  front: string;
+  back: string;
+  extra: string;
+  tags: string[];
+  imageMaterialId: string | null;
+  occlusions: Occlusion[];
+};
 
 function toDraft(card?: Card | null): Draft {
   return {
@@ -19,6 +28,8 @@ function toDraft(card?: Card | null): Draft {
     back: card?.back ?? "",
     extra: card?.extra ?? "",
     tags: card?.tags ?? [],
+    imageMaterialId: card?.imageMaterialId ?? null,
+    occlusions: card?.occlusions ?? [],
   };
 }
 
@@ -38,7 +49,9 @@ export function CardEditorForm({ deckId, card, index, onSaved, onCancel, onDelet
   const [saving, setSaving] = useState(false);
   const [preview, setPreview] = useState(false);
   const [tagInput, setTagInput] = useState("");
+  const [selectedMask, setSelectedMask] = useState<string | null>(null);
   const frontRef = useRef<HTMLTextAreaElement>(null);
+  const isOcclusion = draft.type === "image_occlusion";
 
   const set = (patch: Partial<Draft>) => setDraft((d) => ({ ...d, ...patch }));
 
@@ -72,12 +85,20 @@ export function CardEditorForm({ deckId, card, index, onSaved, onCancel, onDelet
 
   async function save() {
     const pendingTags = tagInput.trim() ? [...new Set([...draft.tags, ...tagInput.split(/[\s,]+/).map((t) => t.replace(/^#/, "")).filter(Boolean)])] : draft.tags;
-    if (!draft.front.trim()) return toast.error("The front cannot be empty.");
+    if (isOcclusion && draft.occlusions.length === 0) return toast.error("Draw at least one mask on the image.");
+    if (!isOcclusion && !draft.front.trim()) return toast.error("The front cannot be empty.");
     if (draft.type === "basic" && !draft.back.trim()) return toast.error("The back cannot be empty.");
     if (draft.type === "cloze" && !hasCloze(draft.front)) return toast.error("Add at least one cloze deletion, e.g. {{c1::answer}}.");
     setSaving(true);
     try {
-      const body = { type: draft.type, front: draft.front, back: draft.type === "basic" ? draft.back : "", extra: draft.extra, tags: pendingTags };
+      const body = {
+        type: draft.type,
+        front: draft.front,
+        back: draft.type === "basic" ? draft.back : "",
+        extra: draft.extra,
+        tags: pendingTags,
+        ...(isOcclusion ? { imageMaterialId: draft.imageMaterialId, occlusions: draft.occlusions } : {}),
+      };
       const res = card
         ? await api<{ card: Card }>(`/api/decks/${deckId}/cards/${card.id}`, { method: "PATCH", json: body })
         : await api<{ card: Card }>(`/api/decks/${deckId}/cards`, { method: "POST", json: body });
@@ -99,12 +120,12 @@ export function CardEditorForm({ deckId, card, index, onSaved, onCancel, onDelet
             {card ? "Edit card" : "New card"}
             {card && index !== undefined && <span className="rounded-[4px] bg-muted px-1.5 py-0.5 font-sans text-[11px] font-semibold text-ink-muted">#{index}</span>}
           </h3>
-          <TypeToggle value={draft.type} onChange={(t) => set({ type: t })} />
+          {isOcclusion ? <OcclusionBadge /> : <TypeToggle value={draft.type} onChange={(t) => set({ type: t })} />}
         </div>
       )}
       {inModal && (
         <div className="mb-3 flex justify-end">
-          <TypeToggle value={draft.type} onChange={(t) => set({ type: t })} />
+          {isOcclusion ? <OcclusionBadge /> : <TypeToggle value={draft.type} onChange={(t) => set({ type: t })} />}
         </div>
       )}
 
@@ -130,7 +151,12 @@ export function CardEditorForm({ deckId, card, index, onSaved, onCancel, onDelet
 
       {preview ? (
         <div className="mt-4 space-y-3 rounded-md border border-line bg-card p-5">
-          {draft.type === "cloze" ? (
+          {isOcclusion && draft.imageMaterialId ? (
+            <div className="space-y-3 text-center">
+              {draft.front && <CardHtml html={sanitizeClient(draft.front)} className="font-serif text-lg" />}
+              <OcclusionView materialId={draft.imageMaterialId} occlusions={draft.occlusions} mode={{ kind: "overview" }} />
+            </div>
+          ) : draft.type === "cloze" ? (
             <ClozeHtml text={sanitizeClient(draft.front)} className="text-center font-serif text-lg leading-relaxed" />
           ) : (
             <>
@@ -143,20 +169,35 @@ export function CardEditorForm({ deckId, card, index, onSaved, onCancel, onDelet
         </div>
       ) : (
         <div className="mt-4 space-y-4">
+          {isOcclusion && draft.imageMaterialId && (
+            <OcclusionMasksEditor
+              materialId={draft.imageMaterialId}
+              occlusions={draft.occlusions}
+              selected={selectedMask}
+              onSelect={setSelectedMask}
+              onChange={(occlusions) => set({ occlusions })}
+            />
+          )}
           <div>
-            <Label htmlFor="card-front">
-              {draft.type === "cloze" ? "Cloze text" : "Question (front)"}
+            <Label htmlFor="card-front" hint={isOcclusion ? "Optional" : undefined}>
+              {isOcclusion ? "Header" : draft.type === "cloze" ? "Cloze text" : "Question (front)"}
             </Label>
             <Textarea
               id="card-front"
               ref={frontRef}
-              rows={draft.type === "cloze" ? 4 : 3}
+              rows={isOcclusion ? 2 : draft.type === "cloze" ? 4 : 3}
               value={draft.front}
               onChange={(e) => set({ front: e.target.value })}
               onKeyDown={onFrontKeyDown}
               maxLength={5000}
               className="bg-sunken font-serif text-[17px] leading-relaxed"
-              placeholder={draft.type === "cloze" ? "The {{c1::sinoatrial}} node is the physiological pacemaker of the heart." : "What is the physiological pacemaker of the heart?"}
+              placeholder={
+                isOcclusion
+                  ? "Label the chambers and valves of the heart"
+                  : draft.type === "cloze"
+                    ? "The {{c1::sinoatrial}} node is the physiological pacemaker of the heart."
+                    : "What is the physiological pacemaker of the heart?"
+              }
             />
           </div>
           {draft.type === "basic" && (
@@ -278,5 +319,72 @@ export function CardEditorModal(props: CardEditorProps & { open: boolean }) {
     <Modal open onClose={props.onCancel} title={props.card ? `Edit card${props.index ? ` #${props.index}` : ""}` : "New card"} size="lg">
       <CardEditorForm key={props.card?.id ?? "new"} {...props} inModal />
     </Modal>
+  );
+}
+
+function OcclusionBadge() {
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-md border border-line bg-sunken px-2.5 py-1 text-xs font-semibold text-heading">
+      <ImageIcon className="size-3.5" /> Image occlusion
+    </span>
+  );
+}
+
+/** Immagine con maschere disegnabili + elenco delle maschere con etichetta. */
+function OcclusionMasksEditor({
+  materialId,
+  occlusions,
+  selected,
+  onSelect,
+  onChange,
+}: {
+  materialId: string;
+  occlusions: Occlusion[];
+  selected: string | null;
+  onSelect: (id: string | null) => void;
+  onChange: (occlusions: Occlusion[]) => void;
+}) {
+  return (
+    <div>
+      <Label hint="Drag on the image to add a mask">Masks</Label>
+      <div className="flex justify-center rounded-md bg-sunken p-2">
+        <OcclusionCanvas
+          materialId={materialId}
+          occlusions={occlusions}
+          selected={selected}
+          onSelect={onSelect}
+          onDraw={(box) => {
+            const id = Math.random().toString(36).slice(2, 10);
+            onChange([...occlusions, { id, label: "", ...box }]);
+            onSelect(id);
+          }}
+        />
+      </div>
+      <ol className="mt-2 space-y-1.5">
+        {occlusions.map((o, i) => (
+          <li key={o.id} className={cn("flex items-center gap-2 rounded-md border p-1.5", selected === o.id ? "border-primary" : "border-line")}>
+            <span className="grid size-6 shrink-0 place-items-center rounded-[4px] bg-[#ffeba2] text-[11px] font-bold text-[#212121]">{i + 1}</span>
+            <Input
+              value={o.label}
+              onFocus={() => onSelect(o.id)}
+              onChange={(e) => onChange(occlusions.map((x) => (x.id === o.id ? { ...x, label: e.target.value } : x)))}
+              placeholder="Hidden term (answer)"
+              maxLength={200}
+              className="h-8 bg-sunken text-[13px]"
+              aria-label={`Label of mask ${i + 1}`}
+            />
+            <button
+              type="button"
+              onClick={() => onChange(occlusions.filter((x) => x.id !== o.id))}
+              className="grid size-8 shrink-0 cursor-pointer place-items-center rounded-md text-ink-muted hover:bg-danger-soft hover:text-danger"
+              aria-label={`Delete mask ${i + 1}`}
+            >
+              <Trash2 className="size-4" />
+            </button>
+          </li>
+        ))}
+        {occlusions.length === 0 && <li className="text-[13px] text-ink-faint">No masks yet: drag on the image to draw one.</li>}
+      </ol>
+    </div>
   );
 }

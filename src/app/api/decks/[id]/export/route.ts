@@ -2,7 +2,8 @@ import type { NextRequest } from "next/server";
 import { buildApkg, buildCsv } from "@/lib/anki";
 import { loadDeck } from "@/lib/decks";
 import { handle, HttpError, requireUser } from "@/lib/http";
-import { listCards } from "@/lib/repo";
+import { getMaterial, listCards } from "@/lib/repo";
+import { getObjectBytesIfExists } from "@/lib/s3";
 import { contentDisposition } from "@/lib/s3";
 
 export const dynamic = "force-dynamic";
@@ -30,7 +31,12 @@ export const GET = handle(async (req: NextRequest, ctx: RouteContext<"/api/decks
   }
   if (format !== "apkg") throw new HttpError(400, "Unsupported export format.");
 
-  const data = await buildApkg(deck, cards);
+  const data = await buildApkg(deck, cards, async (materialId) => {
+    const material = await getMaterial(materialId);
+    if (!material) return null;
+    const bytes = await getObjectBytesIfExists(material.s3Key);
+    return bytes ? { bytes, mimeType: material.mimeType } : null;
+  });
   return new Response(data as Uint8Array<ArrayBuffer>, {
     headers: {
       "Content-Type": "application/octet-stream",
