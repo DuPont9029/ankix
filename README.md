@@ -129,6 +129,8 @@ Il database sta sul bucket, come nel progetto mailsender: ogni tabella è un fil
 3. Consigliato: aggiungi **Upstash Redis** dal Marketplace di Vercel (piano gratuito) e collegalo al progetto; le variabili `KV_REST_API_URL` / `KV_REST_API_TOKEN` vengono riconosciute automaticamente.
 4. Durata delle funzioni: la generazione delle flashcard gira in background fino a 300 s (`maxDuration`); su Vercel serve Fluid compute (attivo di default) per questo limite.
 5. DuckDB gira come **DuckDB-WASM** (nessun binario nativo): i file `.wasm` di DuckDB e di sql.js (export Anki) sono inclusi nelle funzioni tramite `outputFileTracingIncludes` in `next.config.ts`.
+6. L'estensione **parquet** di DuckDB-WASM non è inclusa nel `.wasm` e normalmente verrebbe scaricata e salvata in `~/.duckdb` (di sola lettura su Vercel). Per questo l'estensione ufficiale è inclusa nel repository in `vendor/duckdb-extensions/<versione>/<piattaforma>/` e caricata da lì all'avvio, senza rete. Se aggiorni `@duckdb/duckdb-wasm`, scarica i file della nuova versione di DuckDB:
+   `curl -o vendor/duckdb-extensions/<v>/wasm_eh/parquet.duckdb_extension.wasm https://extensions.duckdb.org/<v>/wasm_eh/parquet.duckdb_extension.wasm` (e lo stesso per `wasm_mvp`).
 
 Note:
 - Il caricamento dei materiali avviene direttamente dal browser al bucket (URL prefirmati): il limite di 4,5 MB del body delle funzioni Vercel non si applica. Serve il CORS del bucket (su Cubbit è già aperto).

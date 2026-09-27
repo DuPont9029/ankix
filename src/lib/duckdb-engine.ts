@@ -1,5 +1,5 @@
 import "server-only";
-import { existsSync, mkdirSync, readFileSync, unlinkSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, unlinkSync } from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
@@ -37,6 +37,36 @@ function distDir(): string {
   return path.dirname(req.resolve("@duckdb/duckdb-wasm/dist/duckdb-eh.wasm"));
 }
 
+/**
+ * L'estensione parquet non è inclusa nel .wasm di DuckDB: in Node, DuckDB-WASM la cerca in
+ * ~/.duckdb/extensions/extensions.duckdb.org/<versione>/<piattaforma>/ e, se manca, la scarica e prova a
+ * salvarla lì — cosa impossibile su Vercel (home di sola lettura). L'estensione ufficiale è quindi
+ * inclusa nel progetto (vendor/duckdb-extensions) e copiata in una "home" temporanea in /tmp prima del caricamento.
+ */
+function loadParquetExtension(conn: { query: (sql: string) => { toArray: () => { toJSON: () => Record<string, unknown> }[] } }) {
+  const platform = String(conn.query("PRAGMA platform").toArray()[0].toJSON().platform);
+  const version = String(conn.query("PRAGMA version").toArray()[0].toJSON().library_version);
+  const vendored = path.join(process.cwd(), "vendor", "duckdb-extensions", version, platform, "parquet.duckdb_extension.wasm");
+  if (!existsSync(vendored)) {
+    throw new Error(`Estensione parquet mancante per DuckDB ${version} (${platform}): attesa in ${vendored}`);
+  }
+  const home = path.join(os.tmpdir(), "ankix-duckdb-home");
+  const cacheDir = path.join(home, ".duckdb", "extensions", "extensions.duckdb.org", version, platform);
+  const cached = path.join(cacheDir, "parquet.duckdb_extension.wasm");
+  if (!existsSync(cached)) {
+    mkdirSync(cacheDir, { recursive: true });
+    copyFileSync(vendored, cached);
+  }
+  const previousHome = process.env.HOME;
+  process.env.HOME = home; // os.homedir() usa HOME: il runtime trova l'estensione nella "cache" senza rete
+  try {
+    conn.query("LOAD parquet");
+  } finally {
+    if (previousHome === undefined) delete process.env.HOME;
+    else process.env.HOME = previousHome;
+  }
+}
+
 export async function createEngine(): Promise<Engine> {
   const dist = distDir();
   const bundles: duckdb.DuckDBBundles = {
@@ -52,6 +82,7 @@ export async function createEngine(): Promise<Engine> {
   mkdirSync(tmp, { recursive: true });
   // Eventuali file temporanei di DuckDB fuori dalla cartella del progetto (di sola lettura su Vercel).
   conn.query(`SET temp_directory = '${tmp.replace(/'/g, "''")}'`);
+  loadParquetExtension(conn);
 
   const execute = (sql: string, params: SqlValue[]) => {
     if (params.length === 0) return conn.query(sql);
