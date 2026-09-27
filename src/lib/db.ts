@@ -1,17 +1,13 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
-import { readFile, unlink, writeFile } from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
-import { DuckDBInstance, type DuckDBConnection, type DuckDBValue } from "@duckdb/node-api";
+import { createEngine, type Engine, type SqlValue } from "./duckdb-engine";
 import { env } from "./env";
 import { acquireWriteLock, LockTimeoutError } from "./lock";
 import { deleteObject, getObjectBytesIfExists, putObject } from "./s3";
 import { LEGACY_SUBJECTS } from "./subjects";
 
 /*
- * Database sul bucket S3, come nel progetto mailsender: le tabelle sono file Parquet letti con DuckDB.
+ * Database sul bucket S3, come nel progetto mailsender: le tabelle sono file Parquet letti con DuckDB-WASM.
  * Progettato per più istanze serverless in parallelo (es. Vercel):
  *
  *   <S3_PREFIX>/db/manifest.json          versione corrente: quale file Parquet contiene ogni tabella
@@ -43,8 +39,7 @@ type Manifest = {
 };
 
 type DbState = {
-  instance: DuckDBInstance;
-  connection: DuckDBConnection;
+  connection: Engine;
   manifest: Manifest | null;
   lastSync: number;
 };
@@ -119,8 +114,9 @@ function dbKey(name: string): string {
 }
 const MANIFEST_KEY = () => dbKey("manifest.json");
 
-function tmpFile(label: string): string {
-  return path.join(os.tmpdir(), `ankix-${process.pid}-${label}-${randomUUID()}.parquet`);
+/** Nome di un file virtuale (in memoria, dentro DuckDB-WASM). */
+function memFile(label: string): string {
+  return `${label}-${randomUUID()}.parquet`;
 }
 
 function sqlString(value: string): string {
@@ -147,28 +143,24 @@ async function writeManifest(manifest: Manifest): Promise<void> {
 }
 
 /** Sostituisce il contenuto di una tabella con un file Parquet (dentro la transazione corrente). */
-async function loadTableFile(conn: DuckDBConnection, table: Table, bytes: Uint8Array): Promise<void> {
-  const file = tmpFile(table);
+async function loadTableFile(conn: Engine, table: Table, bytes: Uint8Array): Promise<void> {
+  const file = memFile(table);
+  conn.registerFile(file, bytes);
   try {
-    await writeFile(file, bytes);
     await conn.run(`DELETE FROM ${table}`);
     await conn.run(`INSERT INTO ${table} BY NAME SELECT * FROM read_parquet(${sqlString(file)})`);
   } finally {
-    await unlink(file).catch(() => undefined);
+    conn.dropFile(file);
   }
 }
 
 /** Esporta una tabella (stato visibile alla transazione corrente) in un nuovo file immutabile sul bucket. */
-async function uploadTable(conn: DuckDBConnection, table: Table, version: number): Promise<string> {
-  const file = tmpFile(table);
+async function uploadTable(conn: Engine, table: Table, version: number): Promise<string> {
+  const file = conn.outputPath(memFile(table));
   const key = dbKey(`data/${table}-${version}-${randomUUID().slice(0, 8)}.parquet`);
-  try {
-    await conn.run(`COPY (SELECT * FROM ${table}) TO ${sqlString(file)} (FORMAT parquet, COMPRESSION zstd)`);
-    await putObject(key, new Uint8Array(await readFile(file)), "application/vnd.apache.parquet");
-    return key;
-  } finally {
-    await unlink(file).catch(() => undefined);
-  }
+  await conn.run(`COPY (SELECT * FROM ${table}) TO ${sqlString(file)} (FORMAT parquet, COMPRESSION zstd)`);
+  await putObject(key, conn.takeOutput(file), "application/vnd.apache.parquet");
+  return key;
 }
 
 // ---------- sincronizzazione con il bucket ----------
@@ -227,45 +219,26 @@ async function sync(state: DbState, force: boolean, haveLock = false): Promise<v
 
 // ---------- primo avvio / migrazione ----------
 
-async function changed(conn: DuckDBConnection, sql: string, params: DuckDBValue[] = []): Promise<boolean> {
-  const reader = await conn.runAndReadAll(`${sql} RETURNING 1`, params);
-  return reader.getRowObjectsJson().length > 0;
+async function changed(conn: Engine, sql: string, params: SqlValue[] = []): Promise<boolean> {
+  return (await conn.all(`${sql} RETURNING 1`, params)).length > 0;
 }
 
-/** Dati delle versioni precedenti: un Parquet per tabella senza manifest, oppure il vecchio file DuckDB locale. */
-async function importLegacy(conn: DuckDBConnection): Promise<void> {
-  let foundFlat = false;
+/** Dati della versione precedente: un Parquet per tabella, senza manifest. */
+async function importLegacy(conn: Engine): Promise<void> {
+  let found = false;
   for (const table of TABLES) {
     const bytes = await getObjectBytesIfExists(dbKey(`${table}.parquet`));
     if (!bytes) continue;
-    foundFlat = true;
-    const file = tmpFile(table);
+    found = true;
+    const file = memFile(table);
+    conn.registerFile(file, bytes);
     try {
-      await writeFile(file, bytes);
       await conn.run(`INSERT INTO ${table} BY NAME SELECT * FROM read_parquet(${sqlString(file)})`);
     } finally {
-      await unlink(file).catch(() => undefined);
+      conn.dropFile(file);
     }
   }
-  if (foundFlat) {
-    console.log("[db] importati i Parquet della versione precedente");
-    return;
-  }
-  const local = path.resolve(env.duckdbPath);
-  if (env.duckdbPath === ":memory:" || !existsSync(local)) return;
-  await conn.run(`ATTACH ${sqlString(local)} AS legacy (READ_ONLY)`);
-  try {
-    const present = await conn.runAndReadAll(
-      `SELECT table_name FROM information_schema.tables WHERE table_catalog = 'legacy' AND table_schema = 'main'`,
-    );
-    const names = new Set(present.getRowObjectsJson().map((r) => String(r.table_name)));
-    for (const table of TABLES) {
-      if (names.has(table)) await conn.run(`INSERT INTO ${table} BY NAME SELECT * FROM legacy.main.${table}`);
-    }
-    console.log(`[db] importato il vecchio database locale ${local}`);
-  } finally {
-    await conn.run(`DETACH legacy`).catch(() => undefined);
-  }
+  if (found) console.log("[db] importati i Parquet della versione precedente");
 }
 
 /** Nessun manifest sul bucket: lo crea (una sola istanza, sotto lock), importando i dati precedenti. */
@@ -313,10 +286,9 @@ async function bootstrap(state: DbState, haveLock: boolean): Promise<void> {
 // ---------- istanza e coda locale ----------
 
 async function init(): Promise<DbState> {
-  const instance = await DuckDBInstance.create(":memory:", { temp_directory: os.tmpdir() });
-  const connection = await instance.connect();
+  const connection = await createEngine();
   for (const statement of SCHEMA) await connection.run(statement);
-  return { instance, connection, manifest: null, lastSync: 0 };
+  return { connection, manifest: null, lastSync: 0 };
 }
 
 function getDb(): Promise<DbState> {
@@ -337,7 +309,7 @@ function withLocalLock<T>(fn: (state: DbState) => Promise<T>): Promise<T> {
   return run;
 }
 
-function normalize(params: SqlParam[]): DuckDBValue[] {
+function normalize(params: SqlParam[]): SqlValue[] {
   return params.map((p) => (p === undefined ? null : p));
 }
 
@@ -346,7 +318,7 @@ export type Tx = {
   exec: (sql: string, params?: SqlParam[]) => Promise<void>;
 };
 
-function makeTx(conn: DuckDBConnection, dirty: Set<Table>): Tx {
+function makeTx(conn: Engine, dirty: Set<Table>): Tx {
   const track = (sql: string) => {
     const table = writtenTable(sql);
     if (table) dirty.add(table);
@@ -354,8 +326,7 @@ function makeTx(conn: DuckDBConnection, dirty: Set<Table>): Tx {
   return {
     async query<T extends Row = Row>(sql: string, params: SqlParam[] = []) {
       track(sql);
-      const reader = await conn.runAndReadAll(sql, normalize(params));
-      return reader.getRowObjectsJson() as T[];
+      return (await conn.all(sql, normalize(params))) as T[];
     },
     async exec(sql: string, params: SqlParam[] = []) {
       track(sql);

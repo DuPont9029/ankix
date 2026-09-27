@@ -44,3 +44,6 @@ next-env.d.ts
 /data/*
 !/data/.gitkeep
 !.env.example
+
+# copia locale delle variabili d'ambiente (contiene segreti)
+/env

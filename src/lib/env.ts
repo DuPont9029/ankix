@@ -37,9 +37,6 @@ export const env = {
   get s3Prefix() {
     return optional("S3_PREFIX", "ankix").replace(/^\/+|\/+$/g, "");
   },
-  get duckdbPath() {
-    return optional("DUCKDB_PATH", "./data/ankix.duckdb");
-  },
   get maxUploadBytes() {
     return positiveInt("MAX_UPLOAD_MB", 50) * 1024 * 1024;
   },

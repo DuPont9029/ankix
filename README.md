@@ -11,7 +11,7 @@ Sito per una classe di Medicina che trasforma i materiali del corso (PDF, immagi
 - **Export**: pacchetto `.apkg` pronto da importare in Anki (mazzo `Medicina::<Materia>::<Titolo>`, tag per argomento), oppure CSV.
 - **Database sul bucket S3** (come nel progetto mailsender): tabelle Parquet in `<S3_PREFIX>/db/` lette con DuckDB, con lock distribuito per funzionare su più istanze Vercel in parallelo.
 
-Stack: Next.js 16 (App Router) · Bun · Tailwind CSS 4 · Better Auth · DuckDB · AWS SDK v3 · `@google/genai`.
+Stack: Next.js 16 (App Router) · Bun · Tailwind CSS 4 · Better Auth · DuckDB-WASM · AWS SDK v3 · `@google/genai`.
 Design: sistema "Clinical Academic Notebook" dal progetto Google Stitch *Ankix Medical Redesign* (Newsreader + Plus Jakarta Sans, verde petrolio `#0f5b5c`, modalità chiara e scura automatiche).
 
 ## Avvio rapido
@@ -48,7 +48,6 @@ bun run start
 | `AWS_S3_FORCE_PATH_STYLE` | `true` per la maggior parte degli S3-compatibili |
 | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | Credenziali del bucket |
 | `S3_BUCKET` / `S3_PREFIX` | Bucket e prefisso delle chiavi (`<prefisso>/materials/<id>/<file>`) |
-| `DUCKDB_PATH` | Solo migrazione: vecchio file DuckDB locale da importare sul bucket al primo avvio (default `./data/ankix.duckdb`) |
 | `MAX_UPLOAD_MB` | Dimensione massima per file (default 50) |
 
 ### Login con Google
@@ -117,7 +116,7 @@ Il database sta sul bucket, come nel progetto mailsender: ogni tabella è un fil
   - altrimenti usa un *lease* su S3 (`db/lock.json`). Serve perché molti provider S3-compatibili, Cubbit compreso, **ignorano le scritture condizionali** (`If-Match` / `If-None-Match`). Funziona senza servizi esterni, ma ogni scrittura richiede circa 1–2 secondi.
 - I file sostituiti vengono cancellati dopo 10 minuti, così un'istanza che sta leggendo la versione precedente non trova file mancanti.
 - I Parquet **non vengono mai mandati al browser**: contengono i mazzi privati di tutti, quindi li legge solo il server.
-- Migrazione automatica: al primo avvio senza manifest vengono importati i Parquet della versione precedente (`<S3_PREFIX>/db/<tabella>.parquet`) oppure il vecchio file `DUCKDB_PATH`.
+- Migrazione automatica: al primo avvio senza manifest vengono importati i Parquet della versione precedente (`<S3_PREFIX>/db/<tabella>.parquet`).
 - Backup: copia la cartella `<S3_PREFIX>/db/` o attiva il versioning del bucket.
 
 ## Deploy su Vercel
@@ -129,7 +128,7 @@ Il database sta sul bucket, come nel progetto mailsender: ogni tabella è un fil
    - le variabili S3 (`AWS_S3_ENDPOINT`, `AWS_REGION`, `AWS_S3_FORCE_PATH_STYLE`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `S3_BUCKET`, `S3_PREFIX`), `GEMINI_MODEL`, `NEXT_PUBLIC_CLASS_NAME`, `ADMIN_EMAILS`, `CLASS_TOTP_SECRET`.
 3. Consigliato: aggiungi **Upstash Redis** dal Marketplace di Vercel (piano gratuito) e collegalo al progetto; le variabili `KV_REST_API_URL` / `KV_REST_API_TOKEN` vengono riconosciute automaticamente.
 4. Durata delle funzioni: la generazione delle flashcard gira in background fino a 300 s (`maxDuration`); su Vercel serve Fluid compute (attivo di default) per questo limite.
-5. Il binario nativo di DuckDB per Linux (~70 MB) viene installato e incluso automaticamente nella funzione; il `.wasm` di sql.js per l'export Anki è incluso tramite `outputFileTracingIncludes` in `next.config.ts`.
+5. DuckDB gira come **DuckDB-WASM** (nessun binario nativo): i file `.wasm` di DuckDB e di sql.js (export Anki) sono inclusi nelle funzioni tramite `outputFileTracingIncludes` in `next.config.ts`.
 
 Note:
 - Il caricamento dei materiali avviene direttamente dal browser al bucket (URL prefirmati): il limite di 4,5 MB del body delle funzioni Vercel non si applica. Serve il CORS del bucket (su Cubbit è già aperto).
@@ -142,7 +141,8 @@ src/
   proxy.ts                 protezione delle route
   app/(app)/               dashboard, materiali, genera, mazzi, studio
   app/api/                 API (auth, materiali, mazzi, card, export)
-  lib/db.ts                DuckDB in memoria + tabelle Parquet versionate sul bucket (manifest)
+  lib/db.ts                DuckDB-WASM in memoria + tabelle Parquet versionate sul bucket (manifest)
+  lib/duckdb-engine.ts     avvio di DuckDB-WASM (modalità blocking per Node)
   lib/lock.ts              lock distribuito per le scritture (Redis/Upstash o lease su S3)
   lib/s3.ts                client S3 con endpoint personalizzato
   lib/gemini.ts            prompt, schema JSON e chiamata a Gemini
