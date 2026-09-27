@@ -1,26 +1,215 @@
 @import "tailwindcss";
 
+/*
+ * Design system "Clinical Academic Notebook" (da Google Stitch — progetto Ankix Medical Redesign).
+ * I token sono variabili CSS: le classi (bg-card, text-ink, …) funzionano sia in chiaro sia in scuro.
+ */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  color-scheme: light;
+  --c-bg: #f8faf7;
+  --c-card: #ffffff;
+  --c-sunken: #f2f4f2;
+  --c-muted: #edeeec;
+  --c-muted-strong: #e7e9e6;
+  --c-line: #e2e4dc;
+  --c-line-strong: #bfc8c8;
+  --c-ink: #191c1b;
+  --c-ink-muted: #3f4948;
+  --c-ink-faint: #6f7979;
+  --c-heading: #004243;
+  --c-primary: #0f5b5c;
+  --c-primary-hover: #0b4344;
+  --c-on-primary: #ffffff;
+  --c-primary-soft: #e6f4f1;
+  --c-accent: #006b5f;
+  --c-accent-soft: #d3f6ef;
+  --c-highlight: #6df5e1;
+  --c-on-highlight: #00201c;
+  --c-danger: #ba1a1a;
+  --c-danger-soft: #ffdad6;
+  --c-on-danger-soft: #93000a;
+  --c-warning: #8a5a00;
+  --c-warning-soft: #fdf0d5;
+  --c-shadow: 0 1px 2px rgb(25 28 27 / 0.04), 0 1px 3px rgb(25 28 27 / 0.04);
+  --c-shadow-raised: 0 8px 16px -4px rgb(15 91 92 / 0.08), 0 2px 4px -1px rgb(25 28 27 / 0.04);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    color-scheme: dark;
+    --c-bg: #0d1418;
+    --c-card: #161d21;
+    --c-sunken: #11181c;
+    --c-muted: #1c242a;
+    --c-muted-strong: #242e35;
+    --c-line: #253036;
+    --c-line-strong: #33414a;
+    --c-ink: #f1f5f9;
+    --c-ink-muted: #a3b1c2;
+    --c-ink-faint: #74849a;
+    --c-heading: #e8f5f3;
+    --c-primary: #4fdbc8;
+    --c-primary-hover: #71f8e4;
+    --c-on-primary: #003731;
+    --c-primary-soft: rgb(79 219 200 / 0.12);
+    --c-accent: #4fdbc8;
+    --c-accent-soft: rgb(79 219 200 / 0.1);
+    --c-highlight: rgb(79 219 200 / 0.22);
+    --c-on-highlight: #a7f3e7;
+    --c-danger: #ffb4ab;
+    --c-danger-soft: #3b1418;
+    --c-on-danger-soft: #ffdad6;
+    --c-warning: #f5c56b;
+    --c-warning-soft: rgb(245 197 107 / 0.12);
+    --c-shadow: 0 0 0 1px rgb(0 0 0 / 0);
+    --c-shadow-raised: 0 8px 20px -6px rgb(0 0 0 / 0.5);
   }
 }
 
+@theme inline {
+  --font-sans: var(--font-jakarta), ui-sans-serif, system-ui, sans-serif;
+  --font-serif: var(--font-newsreader), ui-serif, Georgia, serif;
+
+  --color-bg: var(--c-bg);
+  --color-card: var(--c-card);
+  --color-sunken: var(--c-sunken);
+  --color-muted: var(--c-muted);
+  --color-muted-strong: var(--c-muted-strong);
+  --color-line: var(--c-line);
+  --color-line-strong: var(--c-line-strong);
+  --color-ink: var(--c-ink);
+  --color-ink-muted: var(--c-ink-muted);
+  --color-ink-faint: var(--c-ink-faint);
+  --color-heading: var(--c-heading);
+  --color-primary: var(--c-primary);
+  --color-primary-hover: var(--c-primary-hover);
+  --color-on-primary: var(--c-on-primary);
+  --color-primary-soft: var(--c-primary-soft);
+  --color-accent: var(--c-accent);
+  --color-accent-soft: var(--c-accent-soft);
+  --color-highlight: var(--c-highlight);
+  --color-on-highlight: var(--c-on-highlight);
+  --color-danger: var(--c-danger);
+  --color-danger-soft: var(--c-danger-soft);
+  --color-on-danger-soft: var(--c-on-danger-soft);
+  --color-warning: var(--c-warning);
+  --color-warning-soft: var(--c-warning-soft);
+
+  --shadow-card: var(--c-shadow);
+  --shadow-raised: var(--c-shadow-raised);
+}
+
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--c-bg);
+  color: var(--c-ink);
+}
+
+::selection {
+  background: var(--c-highlight);
+  color: var(--c-on-highlight);
+}
+
+/* Etichette editoriali in maiuscoletto */
+.eyebrow {
+  font-size: 11px;
+  line-height: 14px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+/* Contenuto HTML delle flashcard */
+.card-html {
+  overflow-wrap: anywhere;
+}
+.card-html ul {
+  margin: 0.25rem 0;
+  list-style: disc;
+  padding-left: 1.25rem;
+  text-align: left;
+}
+.card-html ol {
+  margin: 0.25rem 0;
+  list-style: decimal;
+  padding-left: 1.25rem;
+  text-align: left;
+}
+.card-html p + p {
+  margin-top: 0.5rem;
+}
+.card-html table {
+  margin: 0.5rem 0;
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+.card-html th,
+.card-html td {
+  border: 1px solid var(--c-line);
+  padding: 0.25rem 0.5rem;
+}
+.card-html code {
+  border-radius: 4px;
+  background: var(--c-muted);
+  padding: 0 0.3em;
+  font-size: 0.9em;
+}
+.card-html mark {
+  border-radius: 3px;
+  background: var(--c-warning-soft);
+  color: inherit;
+  padding: 0 0.15em;
+}
+.cloze {
+  border-radius: 3px;
+  padding: 0 0.3em;
+  font-weight: 600;
+}
+.cloze-hidden {
+  background: var(--c-highlight);
+  color: var(--c-on-highlight);
+}
+.cloze-revealed {
+  background: var(--c-highlight);
+  color: var(--c-on-highlight);
+}
+
+/* Flip card */
+.flip {
+  perspective: 1600px;
+}
+.flip-inner {
+  transition: transform 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
+  transform-style: preserve-3d;
+}
+.flip-inner.flipped {
+  transform: rotateY(180deg);
+}
+.flip-face {
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+.flip-back {
+  transform: rotateY(180deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .flip-inner {
+    transition: none;
+  }
+}
+
+@keyframes ankix-progress {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(300%);
+  }
+}
+
+.cloze-idx {
+  margin-left: 0.2em;
+  font-size: 0.62em;
+  font-weight: 700;
+  opacity: 0.7;
 }

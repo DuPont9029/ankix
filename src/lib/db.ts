@@ -1,0 +1,477 @@
+import "server-only";
+import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
+import { readFile, unlink, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { DuckDBInstance, type DuckDBConnection, type DuckDBValue } from "@duckdb/node-api";
+import { env } from "./env";
+import { acquireWriteLock, LockTimeoutError } from "./lock";
+import { deleteObject, getObjectBytesIfExists, putObject } from "./s3";
+import { LEGACY_SUBJECTS } from "./subjects";
+
+/*
+ * Database sul bucket S3, come nel progetto mailsender: le tabelle sono file Parquet letti con DuckDB.
+ * Progettato per più istanze serverless in parallelo (es. Vercel):
+ *
+ *   <S3_PREFIX>/db/manifest.json          versione corrente: quale file Parquet contiene ogni tabella
+ *   <S3_PREFIX>/db/data/<tabella>-<v>-<id>.parquet   file immutabili, uno per versione
+ *   <S3_PREFIX>/db/lock.json              lock di scrittura (se non si usa Redis, vedi lock.ts)
+ *
+ * - Ogni istanza tiene una copia in un DuckDB in memoria e, prima di leggere, controlla il manifest
+ *   (al massimo ogni READ_SYNC_MS): se è cambiato ricarica solo le tabelle modificate.
+ * - Ogni scrittura: lock distribuito → rilettura del manifest (dati sempre aggiornati) → transazione →
+ *   upload dei nuovi Parquet → nuovo manifest → COMMIT. Nessuna scrittura può sovrascriverne un'altra.
+ *   Se qualcosa fallisce si fa ROLLBACK e il manifest resta quello precedente (versione coerente).
+ * - I file sostituiti vengono cancellati dopo GC_AFTER_MS, così un'istanza che sta ancora leggendo
+ *   la versione precedente non trova file mancanti.
+ * I Parquet non vengono mai inviati al browser: contengono anche i mazzi privati di tutti gli utenti.
+ */
+
+export type SqlParam = string | number | boolean | null | undefined;
+export type Row = Record<string, unknown>;
+
+const TABLES = ["users", "materials", "decks", "cards"] as const;
+type Table = (typeof TABLES)[number];
+
+type Manifest = {
+  format: 1;
+  version: number;
+  updatedAt: number;
+  tables: Record<Table, string>;
+  garbage: { key: string; at: number }[];
+};
+
+type DbState = {
+  instance: DuckDBInstance;
+  connection: DuckDBConnection;
+  manifest: Manifest | null;
+  lastSync: number;
+};
+
+const READ_SYNC_MS = 200;
+const GC_AFTER_MS = 10 * 60 * 1000;
+
+// Singleton condiviso tra hot-reload e moduli delle route.
+const globalForDb = globalThis as unknown as {
+  __ankixDb?: Promise<DbState>;
+  __ankixDbQueue?: Promise<unknown>;
+};
+
+const SCHEMA = [
+  `CREATE TABLE users (
+    id VARCHAR PRIMARY KEY,
+    email VARCHAR NOT NULL UNIQUE,
+    name VARCHAR NOT NULL,
+    image VARCHAR,
+    joined_at BIGINT,
+    created_at BIGINT NOT NULL
+  )`,
+  `CREATE TABLE materials (
+    id VARCHAR PRIMARY KEY,
+    title VARCHAR NOT NULL,
+    subject VARCHAR NOT NULL,
+    filename VARCHAR NOT NULL,
+    mime_type VARCHAR NOT NULL,
+    size_bytes BIGINT NOT NULL,
+    s3_key VARCHAR NOT NULL,
+    uploaded_by VARCHAR NOT NULL,
+    uploaded_by_id VARCHAR,
+    created_at BIGINT NOT NULL
+  )`,
+  `CREATE TABLE decks (
+    id VARCHAR PRIMARY KEY,
+    title VARCHAR NOT NULL,
+    subject VARCHAR NOT NULL,
+    description VARCHAR NOT NULL DEFAULT '',
+    status VARCHAR NOT NULL,
+    error VARCHAR,
+    options VARCHAR NOT NULL,
+    sources VARCHAR NOT NULL,
+    model VARCHAR NOT NULL,
+    created_by VARCHAR NOT NULL,
+    created_by_id VARCHAR,
+    is_public BOOLEAN NOT NULL DEFAULT false,
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL
+  )`,
+  `CREATE TABLE cards (
+    id VARCHAR PRIMARY KEY,
+    deck_id VARCHAR NOT NULL,
+    position INTEGER NOT NULL,
+    type VARCHAR NOT NULL,
+    front VARCHAR NOT NULL,
+    back VARCHAR NOT NULL DEFAULT '',
+    extra VARCHAR NOT NULL DEFAULT '',
+    tags VARCHAR NOT NULL DEFAULT '[]',
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL
+  )`,
+];
+
+export class StorageError extends Error {}
+
+// ---------- chiavi e file ----------
+
+function dbKey(name: string): string {
+  const prefix = env.s3Prefix ? `${env.s3Prefix}/` : "";
+  return `${prefix}db/${name}`;
+}
+const MANIFEST_KEY = () => dbKey("manifest.json");
+
+function tmpFile(label: string): string {
+  return path.join(os.tmpdir(), `ankix-${process.pid}-${label}-${randomUUID()}.parquet`);
+}
+
+function sqlString(value: string): string {
+  return `'${value.replace(/'/g, "''")}'`;
+}
+
+/** Tabella scritta da un'istruzione SQL (INSERT/UPDATE/DELETE), se presente. */
+function writtenTable(sql: string): Table | null {
+  const m = sql.match(/^\s*(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+"?([a-z_]+)"?/i);
+  const name = m?.[1]?.toLowerCase();
+  return name && (TABLES as readonly string[]).includes(name) ? (name as Table) : null;
+}
+
+async function readManifest(): Promise<Manifest | null> {
+  const bytes = await getObjectBytesIfExists(MANIFEST_KEY());
+  if (!bytes) return null;
+  const manifest = JSON.parse(new TextDecoder().decode(bytes)) as Manifest;
+  if (manifest.format !== 1 || !manifest.tables) throw new Error("manifest.json non valido");
+  return manifest;
+}
+
+async function writeManifest(manifest: Manifest): Promise<void> {
+  await putObject(MANIFEST_KEY(), new TextEncoder().encode(JSON.stringify(manifest)), "application/json");
+}
+
+/** Sostituisce il contenuto di una tabella con un file Parquet (dentro la transazione corrente). */
+async function loadTableFile(conn: DuckDBConnection, table: Table, bytes: Uint8Array): Promise<void> {
+  const file = tmpFile(table);
+  try {
+    await writeFile(file, bytes);
+    await conn.run(`DELETE FROM ${table}`);
+    await conn.run(`INSERT INTO ${table} BY NAME SELECT * FROM read_parquet(${sqlString(file)})`);
+  } finally {
+    await unlink(file).catch(() => undefined);
+  }
+}
+
+/** Esporta una tabella (stato visibile alla transazione corrente) in un nuovo file immutabile sul bucket. */
+async function uploadTable(conn: DuckDBConnection, table: Table, version: number): Promise<string> {
+  const file = tmpFile(table);
+  const key = dbKey(`data/${table}-${version}-${randomUUID().slice(0, 8)}.parquet`);
+  try {
+    await conn.run(`COPY (SELECT * FROM ${table}) TO ${sqlString(file)} (FORMAT parquet, COMPRESSION zstd)`);
+    await putObject(key, new Uint8Array(await readFile(file)), "application/vnd.apache.parquet");
+    return key;
+  } finally {
+    await unlink(file).catch(() => undefined);
+  }
+}
+
+// ---------- sincronizzazione con il bucket ----------
+
+/** Porta la copia in memoria alla versione del manifest indicato (ricarica solo le tabelle cambiate). */
+async function applyManifest(state: DbState, manifest: Manifest): Promise<void> {
+  const changed = TABLES.filter((t) => state.manifest?.tables[t] !== manifest.tables[t]);
+  if (changed.length === 0) {
+    state.manifest = manifest;
+    return;
+  }
+  const files: [Table, Uint8Array][] = [];
+  for (const table of changed) {
+    const bytes = await getObjectBytesIfExists(manifest.tables[table]);
+    if (!bytes) throw new Error(`File mancante per la tabella ${table}: ${manifest.tables[table]}`);
+    files.push([table, bytes]);
+  }
+  const conn = state.connection;
+  await conn.run("BEGIN TRANSACTION");
+  try {
+    for (const [table, bytes] of files) await loadTableFile(conn, table, bytes);
+    await conn.run("COMMIT");
+  } catch (err) {
+    await conn.run("ROLLBACK").catch(() => undefined);
+    throw err;
+  }
+  state.manifest = manifest;
+}
+
+async function sync(state: DbState, force: boolean, haveLock = false): Promise<void> {
+  if (!force && Date.now() - state.lastSync < READ_SYNC_MS) return;
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const manifest = await readManifest();
+      if (!manifest) {
+        await bootstrap(state, haveLock);
+      } else if (manifest.version !== state.manifest?.version) {
+        await applyManifest(state, manifest);
+      }
+      state.lastSync = Date.now();
+      return;
+    } catch (err) {
+      // Es. un file appena rimosso da un'altra istanza: si rilegge il manifest e si riprova.
+      lastError = err;
+    }
+  }
+  if (!force && state.manifest) {
+    // Lettura: meglio dati di pochi istanti fa che un errore.
+    console.error("[db] sincronizzazione con S3 non riuscita, uso la copia in memoria", lastError);
+    return;
+  }
+  console.error("[db] sincronizzazione con S3 non riuscita", lastError);
+  throw new StorageError("Storage is temporarily unavailable. Please try again.");
+}
+
+// ---------- primo avvio / migrazione ----------
+
+async function changed(conn: DuckDBConnection, sql: string, params: DuckDBValue[] = []): Promise<boolean> {
+  const reader = await conn.runAndReadAll(`${sql} RETURNING 1`, params);
+  return reader.getRowObjectsJson().length > 0;
+}
+
+/** Dati delle versioni precedenti: un Parquet per tabella senza manifest, oppure il vecchio file DuckDB locale. */
+async function importLegacy(conn: DuckDBConnection): Promise<void> {
+  let foundFlat = false;
+  for (const table of TABLES) {
+    const bytes = await getObjectBytesIfExists(dbKey(`${table}.parquet`));
+    if (!bytes) continue;
+    foundFlat = true;
+    const file = tmpFile(table);
+    try {
+      await writeFile(file, bytes);
+      await conn.run(`INSERT INTO ${table} BY NAME SELECT * FROM read_parquet(${sqlString(file)})`);
+    } finally {
+      await unlink(file).catch(() => undefined);
+    }
+  }
+  if (foundFlat) {
+    console.log("[db] importati i Parquet della versione precedente");
+    return;
+  }
+  const local = path.resolve(env.duckdbPath);
+  if (env.duckdbPath === ":memory:" || !existsSync(local)) return;
+  await conn.run(`ATTACH ${sqlString(local)} AS legacy (READ_ONLY)`);
+  try {
+    const present = await conn.runAndReadAll(
+      `SELECT table_name FROM information_schema.tables WHERE table_catalog = 'legacy' AND table_schema = 'main'`,
+    );
+    const names = new Set(present.getRowObjectsJson().map((r) => String(r.table_name)));
+    for (const table of TABLES) {
+      if (names.has(table)) await conn.run(`INSERT INTO ${table} BY NAME SELECT * FROM legacy.main.${table}`);
+    }
+    console.log(`[db] importato il vecchio database locale ${local}`);
+  } finally {
+    await conn.run(`DETACH legacy`).catch(() => undefined);
+  }
+}
+
+/** Nessun manifest sul bucket: lo crea (una sola istanza, sotto lock), importando i dati precedenti. */
+async function bootstrap(state: DbState, haveLock: boolean): Promise<void> {
+  const lock = haveLock ? { assertValid: () => undefined, release: async () => undefined } : await acquireWriteLock();
+  const conn = state.connection;
+  const uploaded: string[] = [];
+  try {
+    const existing = await readManifest();
+    if (existing) {
+      await applyManifest(state, existing);
+      return;
+    }
+    for (const table of TABLES) await conn.run(`DELETE FROM ${table}`);
+    await importLegacy(conn);
+
+    await conn.run("BEGIN TRANSACTION");
+    try {
+      for (const [legacy, current] of Object.entries(LEGACY_SUBJECTS)) {
+        await changed(conn, `UPDATE materials SET subject = $1 WHERE subject = $2`, [current, legacy]);
+        await changed(conn, `UPDATE decks SET subject = $1 WHERE subject = $2`, [current, legacy]);
+      }
+      await changed(conn, `DELETE FROM cards WHERE deck_id NOT IN (SELECT id FROM decks)`);
+      const tables = {} as Record<Table, string>;
+      for (const table of TABLES) {
+        tables[table] = await uploadTable(conn, table, 1);
+        uploaded.push(tables[table]);
+      }
+      lock.assertValid();
+      const manifest: Manifest = { format: 1, version: 1, updatedAt: Date.now(), tables, garbage: [] };
+      await writeManifest(manifest);
+      await conn.run("COMMIT");
+      state.manifest = manifest;
+      console.log("[db] creato il database sul bucket (manifest v1)");
+    } catch (err) {
+      await conn.run("ROLLBACK").catch(() => undefined);
+      for (const key of uploaded) await deleteObject(key).catch(() => undefined);
+      throw err;
+    }
+  } finally {
+    await lock.release();
+  }
+}
+
+// ---------- istanza e coda locale ----------
+
+async function init(): Promise<DbState> {
+  const instance = await DuckDBInstance.create(":memory:", { temp_directory: os.tmpdir() });
+  const connection = await instance.connect();
+  for (const statement of SCHEMA) await connection.run(statement);
+  return { instance, connection, manifest: null, lastSync: 0 };
+}
+
+function getDb(): Promise<DbState> {
+  if (!globalForDb.__ankixDb) {
+    globalForDb.__ankixDb = init().catch((err) => {
+      globalForDb.__ankixDb = undefined;
+      throw err;
+    });
+  }
+  return globalForDb.__ankixDb;
+}
+
+/** Serializza l'accesso alla connessione in questa istanza (una operazione alla volta). */
+function withLocalLock<T>(fn: (state: DbState) => Promise<T>): Promise<T> {
+  const previous = globalForDb.__ankixDbQueue ?? Promise.resolve();
+  const run = previous.then(async () => fn(await getDb()));
+  globalForDb.__ankixDbQueue = run.catch(() => undefined);
+  return run;
+}
+
+function normalize(params: SqlParam[]): DuckDBValue[] {
+  return params.map((p) => (p === undefined ? null : p));
+}
+
+export type Tx = {
+  query: <T extends Row = Row>(sql: string, params?: SqlParam[]) => Promise<T[]>;
+  exec: (sql: string, params?: SqlParam[]) => Promise<void>;
+};
+
+function makeTx(conn: DuckDBConnection, dirty: Set<Table>): Tx {
+  const track = (sql: string) => {
+    const table = writtenTable(sql);
+    if (table) dirty.add(table);
+  };
+  return {
+    async query<T extends Row = Row>(sql: string, params: SqlParam[] = []) {
+      track(sql);
+      const reader = await conn.runAndReadAll(sql, normalize(params));
+      return reader.getRowObjectsJson() as T[];
+    },
+    async exec(sql: string, params: SqlParam[] = []) {
+      track(sql);
+      await conn.run(sql, normalize(params));
+    },
+  };
+}
+
+async function collectGarbage(entries: { key: string; at: number }[]): Promise<void> {
+  for (const { key } of entries) await deleteObject(key).catch(() => undefined);
+}
+
+/**
+ * Transazione di scrittura (o di sola lettura, se non modifica nulla).
+ * Le scritture sono serializzate fra TUTTE le istanze tramite il lock distribuito.
+ */
+export function transaction<T>(fn: (tx: Tx) => Promise<T>): Promise<T> {
+  return withLocalLock(async (state) => {
+    await sync(state, false);
+    const conn = state.connection;
+
+    // 1) prova "a secco": se la funzione non scrive nulla non serve il lock distribuito
+    const probe = new Set<Table>();
+    await conn.run("BEGIN TRANSACTION");
+    let result: T;
+    try {
+      result = await fn(makeTx(conn, probe));
+    } catch (err) {
+      await conn.run("ROLLBACK").catch(() => undefined);
+      throw err;
+    }
+    if (probe.size === 0) {
+      await conn.run("COMMIT");
+      return result;
+    }
+    await conn.run("ROLLBACK");
+
+    // 2) scrittura vera: lock → dati aggiornati → transazione → upload → manifest → commit
+    let lock;
+    try {
+      lock = await acquireWriteLock();
+    } catch (err) {
+      if (err instanceof LockTimeoutError) throw new StorageError("The server is busy saving other changes. Please try again.");
+      throw new StorageError("Could not save your changes to storage. Please try again.");
+    }
+    const uploaded: string[] = [];
+    let expired: { key: string; at: number }[] = [];
+    try {
+      await sync(state, true, true);
+      const base = state.manifest!;
+      const dirty = new Set<Table>();
+      await conn.run("BEGIN TRANSACTION");
+      try {
+        result = await fn(makeTx(conn, dirty));
+      } catch (err) {
+        await conn.run("ROLLBACK").catch(() => undefined);
+        throw err;
+      }
+      if (dirty.size === 0) {
+        // Sui dati aggiornati non c'è più nulla da cambiare (es. riga già creata da un'altra istanza).
+        await conn.run("COMMIT");
+        return result;
+      }
+      try {
+        const version = base.version + 1;
+        const tables = { ...base.tables };
+        const now = Date.now();
+        const garbage = [...base.garbage];
+        for (const table of TABLES) {
+          if (!dirty.has(table)) continue;
+          const key = await uploadTable(conn, table, version);
+          uploaded.push(key);
+          garbage.push({ key: tables[table], at: now });
+          tables[table] = key;
+        }
+        expired = garbage.filter((g) => now - g.at > GC_AFTER_MS);
+        const manifest: Manifest = {
+          format: 1,
+          version,
+          updatedAt: now,
+          tables,
+          garbage: garbage.filter((g) => now - g.at <= GC_AFTER_MS),
+        };
+        lock.assertValid();
+        await writeManifest(manifest);
+        await conn.run("COMMIT");
+        state.manifest = manifest;
+        state.lastSync = Date.now();
+      } catch (err) {
+        await conn.run("ROLLBACK").catch(() => undefined);
+        for (const key of uploaded) await deleteObject(key).catch(() => undefined);
+        state.lastSync = 0;
+        console.error("[db] salvataggio su S3 non riuscito", err);
+        throw new StorageError("Could not save your changes to storage. Please try again.");
+      }
+    } finally {
+      await lock.release();
+    }
+    await collectGarbage(expired);
+    return result;
+  });
+}
+
+export function query<T extends Row = Row>(sql: string, params: SqlParam[] = []): Promise<T[]> {
+  if (writtenTable(sql)) return transaction((tx) => tx.query<T>(sql, params));
+  return withLocalLock(async (state) => {
+    await sync(state, false);
+    return makeTx(state.connection, new Set()).query<T>(sql, params);
+  });
+}
+
+export function exec(sql: string, params: SqlParam[] = []): Promise<void> {
+  return transaction((tx) => tx.exec(sql, params));
+}
+
+/** Forza la rilettura del manifest (es. un elemento appena creato su un'altra istanza). */
+export function refresh(): Promise<void> {
+  return withLocalLock((state) => sync(state, true));
+}
