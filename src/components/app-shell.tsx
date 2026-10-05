@@ -48,13 +48,11 @@ export type ShellUser = { name: string; email: string; image: string | null };
 export function AppShell({
   user,
   className,
-  hasGeminiKey,
   isAdmin = false,
   children,
 }: {
   user: ShellUser;
   className: string;
-  hasGeminiKey: boolean;
   isAdmin?: boolean;
   children: ReactNode;
 }) {
@@ -88,8 +86,6 @@ export function AppShell({
     );
   };
 
-  const keyDot = !hasGeminiKey && <span className="size-2 rounded-full bg-accent ring-2 ring-sunken" title="Gemini key missing" />;
-
   return (
     <div className="min-h-dvh">
       {/* Barra laterale desktop */}
@@ -103,7 +99,7 @@ export function AppShell({
         </Link>
         <nav className="flex-1 space-y-1 p-4">
           {NAV.map(({ href, label, icon }) => navLink(href, label, icon))}
-          {navLink("/settings", "Settings", Settings, keyDot)}
+          {navLink("/settings", "Settings", Settings)}
           {isAdmin && (
             <div className="mt-4 border-t border-line pt-4">
               <p className="eyebrow mb-1.5 px-3 text-ink-faint">Administration</p>
@@ -150,11 +146,10 @@ export function AppShell({
           <Link
             href="/settings"
             className="relative grid size-9 place-items-center rounded-full"
-            aria-label="Settings and Gemini key"
+            aria-label="Settings and AI engine"
             title={user.name}
           >
             <Avatar name={user.name} image={user.image} />
-            {!hasGeminiKey && <span className="absolute top-0.5 right-0.5 size-2.5 rounded-full bg-accent ring-2 ring-bg" />}
           </Link>
           <button
             type="button"

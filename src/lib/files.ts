@@ -1,4 +1,4 @@
-// Formati accettati da Gemini come input documentale/visivo.
+// Formati accettati come materiali (input documentale/visivo dei modelli AI).
 export const ACCEPTED_TYPES: Record<string, string[]> = {
   "application/pdf": [".pdf"],
   "image/png": [".png"],

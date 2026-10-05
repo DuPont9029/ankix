@@ -11,6 +11,59 @@ import type { Card, Deck } from "./types";
 const BASIC_MODEL_ID = 1718200000201;
 const CLOZE_MODEL_ID = 1718200000202;
 const OCCLUSION_MODEL_ID = 1718200000203;
+const MCQ_MODEL_ID = 1718200000204;
+
+// Scelta multipla: fino a 6 opzioni (campi A-F, quelli vuoti non compaiono). Sul fronte si tocca un'opzione
+// (ricordata in sessionStorage), sul retro la risposta giusta diventa verde e quella scelta, se sbagliata, rossa.
+// Senza JavaScript il retro mostra comunque la lettera corretta. Funziona su Anki desktop, AnkiDroid e AnkiMobile.
+const MCQ_LETTERS = ["A", "B", "C", "D", "E", "F"] as const;
+const mcqList = (id: string) =>
+  `<ol class="mcq" id="${id}">\n${MCQ_LETTERS.map((l) => `{{#${l}}}<li data-l="${l}"><span class="mcq-l">${l}</span><span>{{${l}}}</span></li>{{/${l}}}`).join("\n")}\n</ol>`;
+const MCQ_QFMT = `<div class="mcq-q">{{Question}}</div>
+${mcqList("mcq-front")}
+<script>
+(function () {
+  var ol = document.getElementById("mcq-front");
+  try { sessionStorage.removeItem("ankix-mcq"); } catch (e) {}
+  ol.querySelectorAll("li").forEach(function (li) {
+    li.onclick = function () {
+      ol.querySelectorAll("li").forEach(function (x) { x.classList.remove("picked"); });
+      li.classList.add("picked");
+      try { sessionStorage.setItem("ankix-mcq", li.dataset.l); } catch (e) {}
+    };
+  });
+})();
+</script>`;
+const MCQ_AFMT = `<div class="mcq-q">{{Question}}</div>
+${mcqList("mcq-back")}
+<hr id="answer">
+<div class="mcq-ans">✔ {{Answer}}</div>
+{{#Extra}}<div class="extra">{{Extra}}</div>{{/Extra}}
+<script>
+(function () {
+  var ok = "{{text:Answer}}".trim().toUpperCase(), picked = null;
+  try { picked = sessionStorage.getItem("ankix-mcq"); } catch (e) {}
+  document.querySelectorAll("#mcq-back li").forEach(function (li) {
+    if (li.dataset.l === ok) li.classList.add("correct");
+    else if (li.dataset.l === picked) li.classList.add("wrong");
+  });
+})();
+</script>`;
+const MCQ_CSS = `
+.mcq-q { margin-bottom: 14px; }
+.mcq { list-style: none; display: inline-block; text-align: left; margin: 0 auto; padding: 0; min-width: min(100%, 420px); }
+.mcq li { display: flex; gap: 10px; align-items: baseline; padding: 8px 12px; margin: 6px 0; border-radius: 8px; border: 1px solid #cbd5e1; cursor: pointer; font-size: 18px; }
+.mcq-l { font-weight: bold; color: #64748b; }
+.mcq li.picked { background: #ccfbf1; border-color: #0d9488; }
+.mcq li.correct { background: #dcfce7; border-color: #16a34a; font-weight: bold; }
+.mcq li.wrong { background: #fee2e2; border-color: #dc2626; text-decoration: line-through; }
+.mcq-ans { font-weight: bold; color: #16a34a; }
+.nightMode .mcq li { border-color: #334155; }
+.nightMode .mcq li.picked { background: #134e4a; }
+.nightMode .mcq li.correct { background: #14532d; }
+.nightMode .mcq li.wrong { background: #7f1d1d; }
+.nightMode .mcq-ans { color: #4ade80; }
+`;
 
 // Template del note type "Image Occlusion" ufficiale di Anki (23.10+): il rendering delle maschere è fatto
 // da anki.imageOcclusion (desktop, AnkiMobile e AnkiDroid aggiornati).
@@ -134,6 +187,16 @@ function models(deckId: number, nowSec: number) {
           did: null,
         },
       ],
+    },
+    [MCQ_MODEL_ID]: {
+      ...common,
+      id: MCQ_MODEL_ID,
+      name: "Ankix Multiple Choice",
+      type: 0,
+      css: CSS + MCQ_CSS,
+      flds: [field("Question", 0), ...MCQ_LETTERS.map((l, i) => field(l, i + 1)), field("Answer", 7), field("Extra", 8)],
+      req: [[0, "any", [0]]],
+      tmpls: [{ name: "Quiz", ord: 0, qfmt: MCQ_QFMT, afmt: MCQ_AFMT, bqfmt: "", bafmt: "", did: null }],
     },
     [OCCLUSION_MODEL_ID]: {
       ...common,
@@ -341,6 +404,27 @@ export async function buildApkg(deck: Deck, cards: Card[], loadImage?: ImageLoad
           due++;
           continue;
         }
+        if (card.type === "mcq") {
+          const correct = card.choices.findIndex((c) => c.correct);
+          if (correct < 0 || card.choices.length < 2) continue;
+          const options = MCQ_LETTERS.map((_, i) => card.choices[i]?.text ?? "");
+          const sortField = stripHtml(card.front);
+          const tags = exportTags(deck, card);
+          const noteId = nextId++;
+          noteStmt.run([
+            noteId,
+            guidFor(card.id),
+            MCQ_MODEL_ID,
+            nowSec,
+            tags.length ? ` ${tags.join(" ")} ` : "",
+            [card.front, ...options, MCQ_LETTERS[correct], card.extra].join("\x1f"),
+            sortField,
+            checksum(sortField),
+          ]);
+          cardStmt.run([nextId++, noteId, deckId, 0, nowSec, due]);
+          due++;
+          continue;
+        }
         const isCloze = card.type === "cloze";
         const ords = isCloze ? clozeNumbers(card.front).map((n) => n - 1) : [0];
         if (ords.length === 0) continue;
@@ -389,7 +473,11 @@ export function buildCsv(deck: Deck, cards: Card[]): string {
     [
       c.type,
       c.front,
-      c.type === "image_occlusion" ? c.occlusions.map((o) => o.label).join("; ") : c.back,
+      c.type === "image_occlusion"
+        ? c.occlusions.map((o) => o.label).join("; ")
+        : c.type === "mcq"
+          ? c.choices.map((x, i) => `${MCQ_LETTERS[i]}) ${x.text}${x.correct ? " ✔" : ""}`).join("<br>")
+          : c.back,
       c.extra,
       exportTags(deck, c).join(" "),
     ]

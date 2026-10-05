@@ -1,4 +1,9 @@
-export type CardType = "basic" | "cloze" | "image_occlusion";
+import type { AiProvider } from "./ai/providers";
+
+export type CardType = "basic" | "cloze" | "image_occlusion" | "mcq";
+
+/** Opzione di una domanda a scelta multipla (esattamente una è corretta). */
+export type Choice = { text: string; correct: boolean };
 
 /** Maschera di image occlusion: coordinate relative all'immagine (0–1). */
 export type Occlusion = {
@@ -25,13 +30,15 @@ export type Material = {
 
 export type GenerationOptions = {
   cardCount: number;
-  cardType: "basic" | "cloze" | "mixed" | "image_occlusion";
+  cardType: "basic" | "cloze" | "mixed" | "mcq" | "image_occlusion";
   difficulty: "base" | "intermedio" | "avanzato";
   language: "it" | "en";
   focus: string;
   materialIds: string[];
   /** true se il titolo va proposto dall'AI */
   autoTitle?: boolean;
+  /** Motore usato per l'ultima generazione (assente nei mazzi creati prima dei motori multipli = Gemini) */
+  provider?: AiProvider;
 };
 
 export type DeckSource = { id: string; title: string };
@@ -67,6 +74,8 @@ export type Card = {
   /** Solo image occlusion: materiale (immagine) e maschere */
   imageMaterialId: string | null;
   occlusions: Occlusion[];
+  /** Solo scelta multipla ("mcq"): opzioni nell'ordine mostrato. `back` contiene il testo della risposta corretta. */
+  choices: Choice[];
   createdAt: number;
   updatedAt: number;
 };

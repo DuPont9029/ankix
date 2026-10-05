@@ -1,6 +1,7 @@
 import "server-only";
 import { OCCLUSION_IMAGE_TYPES } from "./files";
-import { generateFlashcards, generateImageOcclusions, type GenerationResult, type SourceFile } from "./gemini";
+import { generateFlashcards, generateImageOcclusions, type GenerationResult, type SourceFile } from "./ai/generate";
+import type { AiCredentials } from "./ai/settings";
 import { appendCards, getDeck, getMaterialsByIds, listCards, setDeckStatus, updateDeckMeta } from "./repo";
 import { getObjectBytes } from "./s3";
 import type { GenerationOptions } from "./types";
@@ -9,7 +10,7 @@ import type { GenerationOptions } from "./types";
  * Esegue la generazione per un mazzo in stato "generating".
  * Non lancia mai: gli errori vengono salvati sul mazzo.
  */
-export async function runGeneration(deckId: string, opts: GenerationOptions, apiKey: string): Promise<void> {
+export async function runGeneration(deckId: string, opts: GenerationOptions, cred: AiCredentials): Promise<void> {
   try {
     const deck = await getDeck(deckId);
     if (!deck) return;
@@ -40,8 +41,8 @@ export async function runGeneration(deckId: string, opts: GenerationOptions, api
     const existing = existingCards.map((c) => c.front);
     const result: GenerationResult =
       opts.cardType === "image_occlusion"
-        ? await generateImageOcclusions(sources, opts, deck.subject, apiKey)
-        : await generateFlashcards(sources, opts, deck.subject, apiKey, existing);
+        ? await generateImageOcclusions(sources, opts, deck.subject, cred)
+        : await generateFlashcards(sources, opts, deck.subject, cred, existing);
 
     // Il mazzo potrebbe essere stato eliminato durante la generazione.
     if (!(await getDeck(deckId))) return;

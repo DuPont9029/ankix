@@ -1,12 +1,14 @@
 "use client";
 
-import { ArrowRight, Bot, Check, CheckCircle2, FolderOpen, Hourglass, ImageIcon, Layers, ListChecks, NotebookPen, Search, SquareStack, Upload, X } from "lucide-react";
+import { ArrowRight, Check, CheckCircle2, CircleHelp, FolderOpen, Hourglass, ImageIcon, Layers, ListChecks, NotebookPen, Search, SquareStack, Upload, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { toast } from "sonner";
-import { GeminiKeyNotice } from "@/components/gemini-key-notice";
+import { EnginePicker } from "@/components/ai/engine-picker";
+import { useLocalGeneration } from "@/components/ai/local-generation";
 import { Button, EmptyState, Input, Label, PageHeader, Select, Textarea, buttonClass, cn } from "@/components/ui";
+import { PROVIDER_INFO, providerReady, type AiProvider, type AiStatus } from "@/lib/ai/providers";
 import { api } from "@/lib/client";
 import { formatBytes, OCCLUSION_IMAGE_TYPES } from "@/lib/files";
 import { SUBJECTS } from "@/lib/subjects";
@@ -74,13 +76,11 @@ const PRESETS = [10, 20, 40, 60];
 export function GenerateForm({
   materials,
   initialSelection,
-  hasGeminiKey,
-  model,
+  aiStatus,
 }: {
   materials: Material[];
   initialSelection: string[];
-  hasGeminiKey: boolean;
-  model: string;
+  aiStatus: AiStatus;
 }) {
   const router = useRouter();
   const showError = useApiErrorToast();
@@ -94,7 +94,9 @@ export function GenerateForm({
   const [difficulty, setDifficulty] = useState<GenerationOptions["difficulty"]>("intermedio");
   const [language, setLanguage] = useState<GenerationOptions["language"]>("en");
   const [focus, setFocus] = useState("");
+  const [provider, setProvider] = useState<AiProvider>(aiStatus.provider);
   const [submitting, setSubmitting] = useState(false);
+  const localGeneration = useLocalGeneration();
 
   const byId = useMemo(() => new Map(materials.map((m) => [m.id, m])), [materials]);
   const filtered = useMemo(() => {
@@ -129,11 +131,32 @@ export function GenerateForm({
       return;
     }
     setSubmitting(true);
-    try {
-      const { id } = await api<{ id: string }>("/api/decks", {
-        method: "POST",
-        json: { materialIds: selected, title: title.trim(), subject, cardCount, cardType, difficulty, language, focus },
+    const body = { materialIds: selected, title: title.trim(), subject, cardCount, cardType, difficulty, language, focus, provider };
+    if (provider === "local") {
+      // Il modello locale genera qui nel browser; il server riceve solo le card finite.
+      const result = await localGeneration.run({
+        materials: selected.map((id) => byId.get(id)!).filter(Boolean),
+        options: { cardCount, cardType, difficulty, language, focus },
+        subject,
       });
+      if (!result) {
+        setSubmitting(false);
+        return;
+      }
+      try {
+        const { id, cardCount: saved } = await api<{ id: string; cardCount: number }>("/api/decks", { method: "POST", json: { ...body, cards: result.cards } });
+        toast.success(`Deck ready: ${saved} flashcards${result.stopped ? " (stopped early)" : ""}`);
+        result.warnings.forEach((w) => toast.warning(w));
+        localGeneration.close();
+        router.push(`/decks/${id}`);
+      } catch (err) {
+        localGeneration.fail(err instanceof Error ? err.message : String(err));
+        setSubmitting(false);
+      }
+      return;
+    }
+    try {
+      const { id } = await api<{ id: string }>("/api/decks", { method: "POST", json: body });
       toast.success("Generation started: you can follow it on the deck page.");
       router.push(`/decks/${id}`);
     } catch (err) {
@@ -162,8 +185,8 @@ export function GenerateForm({
 
   return (
     <form onSubmit={onSubmit}>
-      <PageHeader eyebrow="New deck" title="Generate flashcards" description="Pick the materials and customise the deck: Gemini does the rest." />
-      {!hasGeminiKey && <GeminiKeyNotice className="mb-6" />}
+      <PageHeader eyebrow="New deck" title="Generate flashcards" description="Pick the materials and customise the deck: the AI does the rest." />
+      {localGeneration.dialog}
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_380px]">
         <div className="space-y-5">
@@ -219,9 +242,10 @@ export function GenerateForm({
                   value={cardType}
                   onChange={setCardType}
                   options={[
-                    { value: "mixed", label: "Mixed", hint: "Q&A + cloze", icon: <Layers className="size-3.5" /> },
+                    { value: "mixed", label: "Mixed", hint: "Q&A, cloze, quiz", icon: <Layers className="size-3.5" /> },
                     { value: "basic", label: "Q&A", hint: "Front and back", icon: <SquareStack className="size-3.5" /> },
                     { value: "cloze", label: "Cloze", hint: "Fill in the blanks", icon: <ListChecks className="size-3.5" /> },
+                    { value: "mcq", label: "Quiz", hint: "4 options", icon: <CircleHelp className="size-3.5" /> },
                     { value: "image_occlusion", label: "Image", hint: "Masks on images", icon: <ImageIcon className="size-3.5" /> },
                   ]}
                 />
@@ -229,7 +253,7 @@ export function GenerateForm({
                   <p className={cn("mt-2 rounded-md px-3 py-2 text-xs", occlusionBlocked ? "bg-warning-soft text-warning" : "bg-primary-soft text-accent")}>
                     {occlusionBlocked
                       ? "Image occlusion uses the images among your materials (PNG, JPG or WEBP): select at least one."
-                      : `Gemini will mask the labels and structures on ${selectedImages} ${selectedImages === 1 ? "image" : "images"}; other materials are ignored. Requires Anki 23.10 or newer.`}
+                      : `The AI will mask the labels and structures on ${selectedImages} ${selectedImages === 1 ? "image" : "images"}; other materials are ignored. Requires Anki 23.10 or newer.`}
                   </p>
                 )}
               </div>
@@ -372,24 +396,20 @@ export function GenerateForm({
                 )}
               </div>
 
-              <div className="flex items-start gap-3 rounded-md border border-line p-3">
-                <Bot className="mt-0.5 size-5 shrink-0 text-ink-muted" strokeWidth={1.75} />
-                <div className="min-w-0 text-xs">
-                  <p className="font-semibold text-ink">
-                    Google Gemini <span className="font-normal text-ink-muted">({model})</span>
-                  </p>
-                  <p className={hasGeminiKey ? "text-ink-muted" : "text-warning"}>
-                    {hasGeminiKey ? "Connected with your personal key" : "Personal key not configured"}
-                  </p>
-                </div>
+              <div>
+                <Label>AI engine</Label>
+                <EnginePicker status={aiStatus} value={provider} onChange={setProvider} />
               </div>
 
-              <Button type="submit" size="lg" className="w-full" loading={submitting} disabled={selected.length === 0 || !hasGeminiKey || occlusionBlocked}>
-                {isOcclusion ? "Generate image occlusion" : `Generate ${cardCount} flashcards`} {!submitting && <ArrowRight className="size-4" />}
+              <Button type="submit" size="lg" className="w-full" loading={submitting} disabled={selected.length === 0 || !providerReady(aiStatus, provider) || occlusionBlocked}>
+                {isOcclusion ? "Generate image occlusion" : cardType === "mcq" ? `Generate ${cardCount} quiz questions` : `Generate ${cardCount} flashcards`} {!submitting && <ArrowRight className="size-4" />}
               </Button>
               <p className="flex items-start gap-2 text-xs text-ink-muted">
                 <Hourglass className="mt-0.5 size-3.5 shrink-0" />
-                Generation usually takes from 20 seconds to a couple of minutes. The deck will be private: you can make it public later.
+                {provider === "local"
+                  ? "The local AI works in this tab: keep it open until it finishes (a few minutes; the first time it also downloads the model)."
+                  : `${PROVIDER_INFO[provider].label} usually takes from 20 seconds to a couple of minutes.`}{" "}
+                The deck will be private: you can make it public later.
               </p>
             </div>
           </div>

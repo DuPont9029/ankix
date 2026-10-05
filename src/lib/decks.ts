@@ -1,5 +1,6 @@
 import "server-only";
 import { z } from "zod";
+import { CLOUD_PROVIDERS } from "./ai/providers";
 import { HttpError } from "./http";
 import { canViewDeck, getDeck, isDeckOwner } from "./repo";
 import type { Deck } from "./types";
@@ -7,10 +8,11 @@ import type { Deck } from "./types";
 export const GenerationBody = z.object({
   materialIds: z.array(z.uuid()).min(1, "Select at least one material").max(10, "At most 10 materials per deck"),
   cardCount: z.number().int().min(5).max(100),
-  cardType: z.enum(["basic", "cloze", "mixed", "image_occlusion"]),
+  cardType: z.enum(["basic", "cloze", "mixed", "mcq", "image_occlusion"]),
   difficulty: z.enum(["base", "intermedio", "avanzato"]),
   language: z.enum(["it", "en"]),
   focus: z.string().max(1000).optional().default(""),
+  provider: z.enum(["local", ...CLOUD_PROVIDERS]).optional().default("local"),
 });
 
 /**

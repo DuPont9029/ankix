@@ -3,7 +3,7 @@ import { betterAuth } from "better-auth";
 import { APIError, createAuthMiddleware } from "better-auth/api";
 import { nextCookies } from "better-auth/next-js";
 import { isEmailAllowed } from "./access";
-import { GEMINI_KEY_COOKIE } from "./cookie-names";
+import { AI_SETTINGS_COOKIE, LEGACY_GEMINI_KEY_COOKIE } from "./cookie-names";
 
 const SESSION_MAX_AGE = 60 * 60 * 24 * 30; // 30 giorni
 
@@ -71,10 +71,12 @@ function createAuth() {
     },
   },
   hooks: {
-    // All'uscita rimuove anche la chiave Gemini personale da questo browser.
+    // All'uscita rimuove anche le chiavi AI personali da questo browser.
     after: createAuthMiddleware(async (ctx) => {
       if (ctx.path === "/sign-out") {
-        ctx.setCookie(GEMINI_KEY_COOKIE, "", { path: "/", maxAge: 0, httpOnly: true, sameSite: "lax" });
+        for (const name of [AI_SETTINGS_COOKIE, LEGACY_GEMINI_KEY_COOKIE]) {
+          ctx.setCookie(name, "", { path: "/", maxAge: 0, httpOnly: true, sameSite: "lax" });
+        }
       }
     }),
   },

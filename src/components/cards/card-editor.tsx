@@ -1,14 +1,14 @@
 "use client";
 
-import { Code2, Eye, ImageIcon, PenLine, Trash2, X } from "lucide-react";
+import { Check, Code2, Eye, ImageIcon, PenLine, Plus, Trash2, X } from "lucide-react";
 import { useRef, useState, type KeyboardEvent } from "react";
 import { toast } from "sonner";
 import { api, errorMessage } from "@/lib/client";
 import { clozeNumbers, hasCloze } from "@/lib/cloze";
 import { sanitizeClient } from "@/lib/sanitize-client";
-import type { Card, CardType, Occlusion } from "@/lib/types";
+import type { Card, CardType, Choice, Occlusion } from "@/lib/types";
 import { Button, Input, Label, Modal, Textarea, cn } from "../ui";
-import { CardHtml, ClozeHtml } from "./card-html";
+import { CardHtml, ChoicesHtml, ClozeHtml } from "./card-html";
 import { OcclusionCanvas, OcclusionView } from "./occlusion-view";
 
 type Draft = {
@@ -19,7 +19,16 @@ type Draft = {
   tags: string[];
   imageMaterialId: string | null;
   occlusions: Occlusion[];
+  choices: Choice[];
 };
+
+const MAX_CHOICES = 6;
+const EMPTY_CHOICES: Choice[] = [
+  { text: "", correct: true },
+  { text: "", correct: false },
+  { text: "", correct: false },
+  { text: "", correct: false },
+];
 
 function toDraft(card?: Card | null): Draft {
   return {
@@ -30,6 +39,7 @@ function toDraft(card?: Card | null): Draft {
     tags: card?.tags ?? [],
     imageMaterialId: card?.imageMaterialId ?? null,
     occlusions: card?.occlusions ?? [],
+    choices: card?.type === "mcq" && card.choices.length ? card.choices : EMPTY_CHOICES,
   };
 }
 
@@ -89,6 +99,11 @@ export function CardEditorForm({ deckId, card, index, onSaved, onCancel, onDelet
     if (!isOcclusion && !draft.front.trim()) return toast.error("The front cannot be empty.");
     if (draft.type === "basic" && !draft.back.trim()) return toast.error("The back cannot be empty.");
     if (draft.type === "cloze" && !hasCloze(draft.front)) return toast.error("Add at least one cloze deletion, e.g. {{c1::answer}}.");
+    const choices = draft.choices.filter((c) => c.text.trim());
+    if (draft.type === "mcq") {
+      if (choices.length < 2) return toast.error("Write at least two options.");
+      if (choices.filter((c) => c.correct).length !== 1) return toast.error("Mark the correct option.");
+    }
     setSaving(true);
     try {
       const body = {
@@ -98,6 +113,7 @@ export function CardEditorForm({ deckId, card, index, onSaved, onCancel, onDelet
         extra: draft.extra,
         tags: pendingTags,
         ...(isOcclusion ? { imageMaterialId: draft.imageMaterialId, occlusions: draft.occlusions } : {}),
+        ...(draft.type === "mcq" ? { choices } : {}),
       };
       const res = card
         ? await api<{ card: Card }>(`/api/decks/${deckId}/cards/${card.id}`, { method: "PATCH", json: body })
@@ -158,6 +174,11 @@ export function CardEditorForm({ deckId, card, index, onSaved, onCancel, onDelet
             </div>
           ) : draft.type === "cloze" ? (
             <ClozeHtml text={sanitizeClient(draft.front)} className="text-center font-serif text-lg leading-relaxed" />
+          ) : draft.type === "mcq" ? (
+            <>
+              <CardHtml html={sanitizeClient(draft.front)} className="text-center font-serif text-lg leading-relaxed" />
+              <ChoicesHtml choices={draft.choices.filter((c) => c.text.trim()).map((c) => ({ ...c, text: sanitizeClient(c.text) }))} reveal />
+            </>
           ) : (
             <>
               <CardHtml html={sanitizeClient(draft.front)} className="text-center font-serif text-lg leading-relaxed" />
@@ -180,7 +201,7 @@ export function CardEditorForm({ deckId, card, index, onSaved, onCancel, onDelet
           )}
           <div>
             <Label htmlFor="card-front" hint={isOcclusion ? "Optional" : undefined}>
-              {isOcclusion ? "Header" : draft.type === "cloze" ? "Cloze text" : "Question (front)"}
+              {isOcclusion ? "Header" : draft.type === "cloze" ? "Cloze text" : draft.type === "mcq" ? "Question" : "Question (front)"}
             </Label>
             <Textarea
               id="card-front"
@@ -200,6 +221,7 @@ export function CardEditorForm({ deckId, card, index, onSaved, onCancel, onDelet
               }
             />
           </div>
+          {draft.type === "mcq" && <ChoicesEditor choices={draft.choices} onChange={(choices) => set({ choices })} />}
           {draft.type === "basic" && (
             <div>
               <Label htmlFor="card-back">Answer (back)</Label>
@@ -208,7 +230,7 @@ export function CardEditorForm({ deckId, card, index, onSaved, onCancel, onDelet
           )}
           <div>
             <Label htmlFor="card-extra" hint="Optional">
-              Clinical note / extra
+              {draft.type === "mcq" ? "Explanation" : "Clinical note / extra"}
             </Label>
             <Textarea
               id="card-extra"
@@ -293,7 +315,7 @@ export function CardEditorForm({ deckId, card, index, onSaved, onCancel, onDelet
 function TypeToggle({ value, onChange }: { value: CardType; onChange: (t: CardType) => void }) {
   return (
     <div className="inline-flex rounded-md border border-line bg-sunken p-0.5" role="radiogroup" aria-label="Card type">
-      {(["basic", "cloze"] as const).map((t) => (
+      {(["basic", "cloze", "mcq"] as const).map((t) => (
         <button
           key={t}
           type="button"
@@ -305,9 +327,70 @@ function TypeToggle({ value, onChange }: { value: CardType; onChange: (t: CardTy
             value === t ? "bg-card text-heading shadow-card" : "text-ink-muted hover:text-ink",
           )}
         >
-          {t === "basic" ? "Q / A" : "Cloze"}
+          {t === "basic" ? "Q / A" : t === "cloze" ? "Cloze" : "Quiz"}
         </button>
       ))}
+    </div>
+  );
+}
+
+/** Opzioni della domanda a scelta multipla: il pallino indica quella corretta. */
+function ChoicesEditor({ choices, onChange }: { choices: Choice[]; onChange: (choices: Choice[]) => void }) {
+  const update = (i: number, patch: Partial<Choice>) => onChange(choices.map((c, j) => (j === i ? { ...c, ...patch } : c)));
+  const markCorrect = (i: number) => onChange(choices.map((c, j) => ({ ...c, correct: j === i })));
+  function remove(i: number) {
+    const next = choices.filter((_, j) => j !== i);
+    if (choices[i].correct && next.length) next[0] = { ...next[0], correct: true };
+    onChange(next);
+  }
+  return (
+    <div>
+      <Label hint="Select the correct one">Options</Label>
+      <ol className="space-y-1.5">
+        {choices.map((c, i) => (
+          <li key={i} className={cn("flex items-center gap-2 rounded-md border p-1.5", c.correct ? "border-accent bg-accent-soft" : "border-line")}>
+            <button
+              type="button"
+              role="radio"
+              aria-checked={c.correct}
+              onClick={() => markCorrect(i)}
+              className={cn(
+                "grid size-7 shrink-0 cursor-pointer place-items-center rounded-full border text-[11px] font-bold transition",
+                c.correct ? "border-accent bg-accent text-bg" : "border-line-strong text-ink-muted hover:border-accent",
+              )}
+              aria-label={`Option ${"ABCDEF"[i]} is the correct answer`}
+            >
+              {c.correct ? <Check className="size-3.5" strokeWidth={3} /> : "ABCDEF"[i]}
+            </button>
+            <Input
+              value={c.text}
+              onChange={(e) => update(i, { text: e.target.value })}
+              placeholder={c.correct ? "Correct answer" : "Wrong but plausible option"}
+              maxLength={1000}
+              className="h-8 bg-sunken text-[13px]"
+              aria-label={`Option ${"ABCDEF"[i]}`}
+            />
+            <button
+              type="button"
+              onClick={() => remove(i)}
+              disabled={choices.length <= 2}
+              className="grid size-8 shrink-0 cursor-pointer place-items-center rounded-md text-ink-muted hover:bg-danger-soft hover:text-danger disabled:pointer-events-none disabled:opacity-30"
+              aria-label={`Delete option ${"ABCDEF"[i]}`}
+            >
+              <Trash2 className="size-4" />
+            </button>
+          </li>
+        ))}
+      </ol>
+      {choices.length < MAX_CHOICES && (
+        <button
+          type="button"
+          onClick={() => onChange([...choices, { text: "", correct: false }])}
+          className="mt-2 inline-flex cursor-pointer items-center gap-1 text-[13px] font-semibold text-accent hover:underline"
+        >
+          <Plus className="size-3.5" /> Add option
+        </button>
+      )}
     </div>
   );
 }

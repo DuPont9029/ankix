@@ -31,12 +31,15 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { CardEditorForm, CardEditorModal } from "@/components/cards/card-editor";
-import { CardHtml, ClozeMarkedHtml } from "@/components/cards/card-html";
+import { CardHtml, ChoicesHtml, ClozeMarkedHtml } from "@/components/cards/card-html";
 import { OcclusionView } from "@/components/cards/occlusion-view";
+import { EnginePicker } from "@/components/ai/engine-picker";
+import { useLocalGeneration } from "@/components/ai/local-generation";
 import { DeckStatusPill } from "@/components/deck-card";
-import { GeminiKeyNotice } from "@/components/gemini-key-notice";
 import { RelativeTime } from "@/components/relative-time";
 import { Button, ConfirmDialog, EmptyState, Input, Label, Modal, Pill, Select, SubjectBadge, Switch, Textarea, buttonClass, cn } from "@/components/ui";
+import type { LocalMaterial } from "@/lib/ai/local/extract";
+import { LOCAL_MODEL_LABEL, PROVIDER_INFO, providerReady, type AiProvider, type AiStatus } from "@/lib/ai/providers";
 import { api, errorMessage } from "@/lib/client";
 import { SUBJECTS } from "@/lib/subjects";
 import type { Card, Deck } from "@/lib/types";
@@ -50,7 +53,7 @@ const GENERATING_MESSAGES = [
   "Checking duplicates and formatting…",
 ];
 
-function GeneratingBanner({ since }: { since: number }) {
+function GeneratingBanner({ since, model }: { since: number; model: string }) {
   const [now, setNow] = useState(since);
   useEffect(() => {
     const update = () => setNow(Date.now());
@@ -73,7 +76,7 @@ function GeneratingBanner({ since }: { since: number }) {
           <Sparkles className="size-[18px] animate-pulse" />
         </span>
         <div className="min-w-0">
-          <p className="font-semibold text-heading">Gemini is generating the flashcards</p>
+          <p className="font-semibold text-heading">{model} is generating the flashcards</p>
           <p className="text-[13px] text-ink-muted" suppressHydrationWarning>
             {message} · {elapsed}s
           </p>
@@ -169,12 +172,14 @@ function CardRow({
             "shrink-0 rounded-[4px] px-1.5 py-0.5 text-[11px] font-bold tracking-[0.04em] whitespace-nowrap",
             card.type === "cloze"
               ? "bg-indigo-50 text-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-300"
+              : card.type === "mcq"
+                ? "bg-violet-50 text-violet-800 dark:bg-violet-950/60 dark:text-violet-300"
               : card.type === "image_occlusion"
                 ? "bg-amber-50 text-amber-900 dark:bg-amber-950/60 dark:text-amber-300"
                 : "bg-muted text-ink",
           )}
         >
-          {card.type === "cloze" ? "CLOZE" : card.type === "image_occlusion" ? "IMAGE OCCLUSION" : "BASIC"}
+          {card.type === "cloze" ? "CLOZE" : card.type === "mcq" ? "QUIZ" : card.type === "image_occlusion" ? "IMAGE OCCLUSION" : "BASIC"}
         </span>
         <span className="flex min-w-0 flex-wrap gap-1">
           {card.tags.map((t) => (
@@ -215,6 +220,12 @@ function CardRow({
             </div>
           </div>
         </div>
+      ) : card.type === "mcq" ? (
+        <div className="mt-3 rounded-md bg-sunken p-4">
+          <p className="eyebrow mb-1.5 text-ink-muted">Question</p>
+          <CardHtml html={card.front} className="mb-3 font-serif text-[17px] leading-7 text-ink" />
+          <ChoicesHtml choices={card.choices} reveal className="max-w-none" />
+        </div>
       ) : card.type === "cloze" ? (
         <div className="mt-3 rounded-md bg-sunken p-4">
           <p className="eyebrow mb-2 text-ink-muted">Cloze text</p>
@@ -237,7 +248,7 @@ function CardRow({
         <div className="mt-3 flex gap-2 text-[13px] leading-5 text-ink-muted">
           <Stethoscope className="mt-0.5 size-4 shrink-0" strokeWidth={1.75} />
           <div className="min-w-0">
-            <span className="font-semibold text-ink">Clinical note: </span>
+            <span className="font-semibold text-ink">{card.type === "mcq" ? "Explanation: " : "Clinical note: "}</span>
             <CardHtml html={card.extra} className="inline [&>*]:inline" />
           </div>
         </div>
@@ -252,14 +263,16 @@ export function DeckView({
   initialDeck,
   initialCards,
   isOwner,
-  hasGeminiKey,
-  model,
+  aiStatus,
+  sourceMaterials,
 }: {
   initialDeck: Deck;
   initialCards: Card[];
   isOwner: boolean;
-  hasGeminiKey: boolean;
-  model: string;
+  /** Solo per il proprietario: motori AI disponibili */
+  aiStatus: AiStatus | null;
+  /** Materiali ancora esistenti del mazzo (per il modello locale, che li legge nel browser) */
+  sourceMaterials: LocalMaterial[];
 }) {
   const router = useRouter();
   const showError = useApiErrorToast();
@@ -267,7 +280,7 @@ export function DeckView({
   const [deck, setDeck] = useState(initialDeck);
   const [cards, setCards] = useState(initialCards);
   const [query, setQuery] = useState("");
-  const [typeFilter, setTypeFilter] = useState<"" | "basic" | "cloze" | "image_occlusion">("");
+  const [typeFilter, setTypeFilter] = useState<"" | "basic" | "cloze" | "mcq" | "image_occlusion">("");
   const [editor, setEditor] = useState<EditorState>({ mode: "closed" });
   const [toDeleteCard, setToDeleteCard] = useState<Card | null>(null);
   const [deleteDeckOpen, setDeleteDeckOpen] = useState(false);
@@ -276,6 +289,7 @@ export function DeckView({
   const [busy, setBusy] = useState(false);
   const [savingVisibility, setSavingVisibility] = useState(false);
   const [copying, setCopying] = useState(false);
+  const localGeneration = useLocalGeneration();
 
   const refresh = useCallback(async () => {
     const data = await api<{ deck: Deck; cards: Card[] }>(`/api/decks/${deck.id}`);
@@ -308,6 +322,7 @@ export function DeckView({
     () => ({
       basic: cards.filter((c) => c.type === "basic").length,
       cloze: cards.filter((c) => c.type === "cloze").length,
+      mcq: cards.filter((c) => c.type === "mcq").length,
       occlusion: cards.filter((c) => c.type === "image_occlusion").length,
     }),
     [cards],
@@ -315,7 +330,7 @@ export function DeckView({
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return cards.filter(
-      (c) => (!typeFilter || c.type === typeFilter) && (!q || `${c.front} ${c.back} ${c.extra} ${c.tags.join(" ")} ${c.occlusions.map((x) => x.label).join(" ")}`.toLowerCase().includes(q)),
+      (c) => (!typeFilter || c.type === typeFilter) && (!q || `${c.front} ${c.back} ${c.extra} ${c.tags.join(" ")} ${c.occlusions.map((x) => x.label).join(" ")} ${c.choices.map((x) => x.text).join(" ")}`.toLowerCase().includes(q)),
     );
   }, [cards, query, typeFilter]);
 
@@ -352,7 +367,8 @@ export function DeckView({
     }
   }
 
-  async function regenerate(body: { cardCount?: number; focus?: string }) {
+  async function regenerate(body: { cardCount?: number; focus?: string; provider: AiProvider }) {
+    if (body.provider === "local") return regenerateLocally(body);
     setBusy(true);
     try {
       await api(`/api/decks/${deck.id}/generate`, { method: "POST", json: body });
@@ -361,6 +377,37 @@ export function DeckView({
     } catch (err) {
       showError(err);
       setMoreOpen(false);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Il modello locale genera nel browser; le card finite vengono salvate in blocco.
+  async function regenerateLocally(body: { cardCount?: number; focus?: string }) {
+    if (sourceMaterials.length === 0) {
+      toast.error("The source materials have been deleted.");
+      return;
+    }
+    setMoreOpen(false);
+    setBusy(true);
+    try {
+      const result = await localGeneration.run({
+        materials: sourceMaterials,
+        options: { ...deck.options, cardCount: body.cardCount ?? deck.options.cardCount, focus: body.focus ?? deck.options.focus },
+        subject: deck.subject,
+        skipImageIds: cards.filter((c) => c.type === "image_occlusion").map((c) => c.imageMaterialId ?? ""),
+      });
+      if (!result) return;
+      try {
+        const { cards: created } = await api<{ cards: Card[] }>(`/api/decks/${deck.id}/cards/bulk`, { method: "POST", json: { cards: result.cards } });
+        setCards((prev) => [...prev, ...created]);
+        setDeck((d) => ({ ...d, status: "ready", error: null, model: LOCAL_MODEL_LABEL, cardCount: d.cardCount + created.length }));
+        toast.success(`${created.length} cards added${result.stopped ? " (stopped early)" : ""}`);
+        result.warnings.forEach((w) => toast.warning(w));
+        localGeneration.close();
+      } catch (err) {
+        localGeneration.fail(errorMessage(err));
+      }
     } finally {
       setBusy(false);
     }
@@ -481,7 +528,7 @@ export function DeckView({
         </div>
       </div>
 
-      {generating && <GeneratingBanner since={deck.updatedAt} />}
+      {generating && <GeneratingBanner since={deck.updatedAt} model={deck.model} />}
 
       {isOwner && deck.status === "error" && deck.error && (
         <div className="mb-6 flex flex-col gap-3 rounded-lg border border-danger/30 bg-danger-soft p-4 sm:flex-row sm:items-center sm:justify-between">
@@ -492,12 +539,11 @@ export function DeckView({
               <p className="text-[13px] text-on-danger-soft/90">{deck.error}</p>
             </div>
           </div>
-          <Button variant="secondary" onClick={() => regenerate({})} loading={busy} className="self-start bg-card sm:self-auto">
+          <Button variant="secondary" onClick={() => setMoreOpen(true)} loading={busy} className="self-start bg-card sm:self-auto">
             <RotateCcw className="size-4" /> Retry
           </Button>
         </div>
       )}
-      {isOwner && !generating && !hasGeminiKey && (deck.status === "error" || cards.length === 0) && <GeminiKeyNotice className="mb-6" />}
 
       {/* Statistiche + visibilità */}
       <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -519,6 +565,7 @@ export function DeckView({
             <div className="flex flex-wrap items-center justify-between gap-3">
               <p className="text-[13px] text-ink-muted">
                 <span className="font-semibold text-ink">{cards.length} {cards.length === 1 ? "card" : "cards"}</span> · {counts.basic} question/answer · {counts.cloze} cloze
+                {counts.mcq > 0 && ` · ${counts.mcq} quiz`}
                 {counts.occlusion > 0 && ` · ${counts.occlusion} image occlusion`}
               </p>
               {isOwner && (
@@ -526,7 +573,7 @@ export function DeckView({
                   <Button size="sm" onClick={() => setEditor({ mode: "new" })} disabled={generating}>
                     <Plus className="size-4" /> Add card
                   </Button>
-                  <Button variant="secondary" size="sm" onClick={() => setMoreOpen(true)} disabled={generating}>
+                  <Button variant="secondary" size="sm" onClick={() => setMoreOpen(true)} disabled={generating || busy}>
                     <Sparkles className="size-3.5" /> Generate more
                   </Button>
                   <OverflowMenu>
@@ -556,6 +603,7 @@ export function DeckView({
                     ["", `All (${cards.length})`],
                     ["basic", `Q/A (${counts.basic})`],
                     ["cloze", `Cloze (${counts.cloze})`],
+                    ...(counts.mcq > 0 ? ([["mcq", `Quiz (${counts.mcq})`]] as const) : []),
                     ...(counts.occlusion > 0 ? ([["image_occlusion", `Image (${counts.occlusion})`]] as const) : []),
                   ] as const).map(([v, label]) => (
                     <button
@@ -659,7 +707,8 @@ export function DeckView({
 
       {!wide && isOwner && <CardEditorModal open={editor.mode !== "closed"} {...editorProps} />}
 
-      <MoreCardsDialog open={moreOpen} onClose={() => setMoreOpen(false)} deck={deck} busy={busy} model={model} onSubmit={regenerate} />
+      {aiStatus && <MoreCardsDialog open={moreOpen} onClose={() => setMoreOpen(false)} deck={deck} busy={busy} aiStatus={aiStatus} onSubmit={regenerate} />}
+      {localGeneration.dialog}
       <DeckMetaDialog
         open={metaOpen}
         onClose={() => setMetaOpen(false)}
@@ -696,18 +745,19 @@ function MoreCardsDialog({
   onClose,
   deck,
   busy,
-  model,
+  aiStatus,
   onSubmit,
 }: {
   open: boolean;
   onClose: () => void;
   deck: Deck;
   busy: boolean;
-  model: string;
-  onSubmit: (body: { cardCount: number; focus: string }) => void;
+  aiStatus: AiStatus;
+  onSubmit: (body: { cardCount: number; focus: string; provider: AiProvider }) => void;
 }) {
   const [count, setCount] = useState(20);
   const [focus, setFocus] = useState("");
+  const [provider, setProvider] = useState<AiProvider>(aiStatus.provider);
   return (
     <Modal
       open={open}
@@ -718,7 +768,7 @@ function MoreCardsDialog({
           <Button variant="secondary" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
-          <Button onClick={() => onSubmit({ cardCount: count, focus })} loading={busy}>
+          <Button onClick={() => onSubmit({ cardCount: count, focus, provider })} loading={busy} disabled={!providerReady(aiStatus, provider)}>
             <Sparkles className="size-4" /> Generate {count} cards
           </Button>
         </>
@@ -726,7 +776,7 @@ function MoreCardsDialog({
     >
       <div className="space-y-4">
         <p className="text-[13px] text-ink-muted">
-          Gemini ({model}) rereads the same materials ({deck.sources.length}) and avoids cards already in the deck.
+          {PROVIDER_INFO[provider].label} rereads the same materials ({deck.sources.length}) and avoids cards already in the deck.
         </p>
         <div>
           <div className="mb-2 flex items-baseline justify-between">
@@ -742,6 +792,10 @@ function MoreCardsDialog({
             What to focus on
           </Label>
           <Textarea id="more-focus" rows={3} maxLength={1000} value={focus} onChange={(e) => setFocus(e.target.value)} placeholder="E.g. more cards on the pharmacology of diuretics" />
+        </div>
+        <div>
+          <Label>AI engine</Label>
+          <EnginePicker status={aiStatus} value={provider} onChange={setProvider} />
         </div>
       </div>
     </Modal>

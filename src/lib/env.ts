@@ -22,6 +22,15 @@ export const env = {
   get geminiModel() {
     return optional("GEMINI_MODEL", "gemini-3.6-flash");
   },
+  get anthropicModel() {
+    return optional("ANTHROPIC_MODEL", "claude-opus-5-5");
+  },
+  get openaiModel() {
+    return optional("OPENAI_MODEL", "gpt-5");
+  },
+  get openrouterModel() {
+    return optional("OPENROUTER_MODEL", "openrouter/auto");
+  },
   get s3Bucket() {
     return required("S3_BUCKET");
   },

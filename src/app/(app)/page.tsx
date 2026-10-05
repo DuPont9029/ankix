@@ -2,13 +2,11 @@ import { ArrowRight, BookOpenCheck, CheckCircle2, Download, FileUp, FolderOpen, 
 import Link from "next/link";
 import { DeckCard } from "@/components/deck-card";
 import { FileIcon, fileKind } from "@/components/file-icon";
-import { GeminiKeyNotice } from "@/components/gemini-key-notice";
 import { RelativeTime } from "@/components/relative-time";
 import { buttonClass } from "@/components/styles";
 import { EmptyState, SectionTitle, SubjectBadge } from "@/components/ui";
 import { getCurrentUser } from "@/lib/current-user";
 import { formatBytes } from "@/lib/files";
-import { getGeminiKey } from "@/lib/gemini-key";
 import { listDecks, listMaterials, stats } from "@/lib/repo";
 
 export const dynamic = "force-dynamic";
@@ -23,12 +21,11 @@ function SeeAll({ href, children }: { href: string; children: React.ReactNode })
 
 export default async function DashboardPage() {
   const user = (await getCurrentUser())!;
-  const [totals, myDecks, publicDecks, materials, key] = await Promise.all([
+  const [totals, myDecks, publicDecks, materials] = await Promise.all([
     stats(user.id),
     listDecks(user.id, "mine"),
     listDecks(user.id, "public"),
     listMaterials(),
-    getGeminiKey(user),
   ]);
   const firstName = user.name.split(" ")[0];
 
@@ -49,8 +46,8 @@ export default async function DashboardPage() {
     {
       icon: Sparkles,
       title: "Generate flashcards",
-      text: "Gemini extracts the high-yield concepts and writes questions and clozes based only on your material.",
-      foot: "With your Gemini key",
+      text: "The AI extracts the high-yield concepts and writes questions and clozes based only on your material.",
+      foot: "Free local AI, or Gemini, Claude, OpenAI",
       footIcon: Zap,
     },
     {
@@ -64,8 +61,6 @@ export default async function DashboardPage() {
 
   return (
     <div className="flex flex-col gap-9">
-      {!key && <GeminiKeyNotice />}
-
       <section className="relative overflow-hidden rounded-lg border border-line bg-card p-6 shadow-card sm:p-9">
         <div aria-hidden className="pointer-events-none absolute -top-20 -right-20 size-80 rounded-full bg-primary/5 blur-3xl" />
         <div className="relative flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
@@ -79,7 +74,7 @@ export default async function DashboardPage() {
               Turn lectures into flashcards in seconds.
             </h1>
             <p className="mt-3 text-ink-muted">
-              Upload course handouts and slides, let Gemini extract the key concepts and take the cards straight to Anki.
+              Upload course handouts and slides, let the AI extract the key concepts and take the cards straight to Anki.
             </p>
           </div>
           <div className="flex w-full shrink-0 flex-col gap-2.5 sm:w-auto sm:flex-row">

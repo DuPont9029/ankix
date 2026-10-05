@@ -3,7 +3,7 @@
 import { ArrowLeft, Check, ChevronLeft, RotateCcw, Shuffle, Trophy, X } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CardHtml, ClozeHtml } from "@/components/cards/card-html";
+import { CardHtml, ChoicesHtml, ClozeHtml } from "@/components/cards/card-html";
 import { OcclusionView } from "@/components/cards/occlusion-view";
 import { Button, EmptyState, SubjectBadge, buttonClass, cn } from "@/components/ui";
 import { clozeNumbers } from "@/lib/cloze";
@@ -30,8 +30,17 @@ function shuffled<T>(arr: T[]): T[] {
   return a;
 }
 
-function Face({ item, side }: { item: Item; side: "front" | "back" }) {
+function Face({ item, side, picked, onPick }: { item: Item; side: "front" | "back"; picked: number | null; onPick: (i: number) => void }) {
   const { card, cloze } = item;
+  if (card.type === "mcq") {
+    return (
+      <div className="w-full space-y-5">
+        <CardHtml html={card.front} className={cn("font-serif text-ink", side === "front" ? "text-[21px] leading-9 sm:text-[24px]" : "text-[17px] leading-7")} />
+        <ChoicesHtml choices={card.choices} reveal={side === "back"} picked={picked} onPick={side === "front" ? onPick : undefined} />
+        {side === "back" && card.extra && <CardHtml html={card.extra} className="border-l-2 border-accent pl-3 text-left text-[13px] text-ink-muted" />}
+      </div>
+    );
+  }
   if (card.type === "image_occlusion" && card.imageMaterialId && cloze !== null) {
     const active = cloze - 1;
     return (
@@ -75,6 +84,8 @@ export function StudyView({ deck, cards }: { deck: Deck; cards: Card[] }) {
   const [index, setIndex] = useState(0);
   const [flipped, setFlipped] = useState(false);
   const [results, setResults] = useState<Record<string, boolean>>({});
+  /** Scelta multipla: opzione scelta sul fronte della card corrente */
+  const [picked, setPicked] = useState<number | null>(null);
 
   const current = queue[index];
   const done = queue.length > 0 && index >= queue.length;
@@ -86,6 +97,7 @@ export function StudyView({ deck, cards }: { deck: Deck; cards: Card[] }) {
     setIndex(0);
     setFlipped(false);
     setResults({});
+    setPicked(null);
   }, []);
 
   const answer = useCallback(
@@ -93,6 +105,7 @@ export function StudyView({ deck, cards }: { deck: Deck; cards: Card[] }) {
       if (!current) return;
       setResults((r) => ({ ...r, [current.key]: ok }));
       setFlipped(false);
+      setPicked(null);
       setIndex((i) => i + 1);
     },
     [current],
@@ -101,14 +114,23 @@ export function StudyView({ deck, cards }: { deck: Deck; cards: Card[] }) {
   const back = useCallback(() => {
     if (index === 0) return;
     setFlipped(false);
+    setPicked(null);
     setIndex((i) => i - 1);
   }, [index]);
+
+  const pick = useCallback((i: number) => {
+    setPicked(i);
+    setFlipped(true);
+  }, []);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.target instanceof HTMLElement && ["INPUT", "TEXTAREA", "SELECT"].includes(e.target.tagName)) return;
       if (done || !current) return;
-      if (e.key === " " || e.key === "Enter") {
+      const letter = "abcdef".indexOf(e.key.toLowerCase());
+      if (!flipped && current.card.type === "mcq" && e.key.length === 1 && letter >= 0 && letter < current.card.choices.length) {
+        pick(letter);
+      } else if (e.key === " " || e.key === "Enter") {
         e.preventDefault();
         setFlipped((f) => !f);
       } else if (flipped && (e.key === "1" || e.key === "ArrowLeft")) {
@@ -121,7 +143,7 @@ export function StudyView({ deck, cards }: { deck: Deck; cards: Card[] }) {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [answer, back, current, done, flipped]);
+  }, [answer, back, current, done, flipped, pick]);
 
   if (all.length === 0) {
     return (
@@ -213,10 +235,16 @@ export function StudyView({ deck, cards }: { deck: Deck; cards: Card[] }) {
                           ? `Cloze ${current.cloze}`
                           : current.card.type === "image_occlusion"
                             ? `Mask ${current.cloze} of ${current.card.occlusions.length}`
-                            : "Question"
-                        : "Answer"}
+                            : current.card.type === "mcq"
+                              ? "Pick an answer"
+                              : "Question"
+                        : current.card.type === "mcq" && picked !== null
+                          ? current.card.choices[picked]?.correct
+                            ? "Correct"
+                            : "Wrong"
+                          : "Answer"}
                     </span>
-                    <Face item={current} side={side} />
+                    <Face item={current} side={side} picked={picked} onPick={pick} />
                   </div>
                 ))}
               </div>
@@ -241,7 +269,9 @@ export function StudyView({ deck, cards }: { deck: Deck; cards: Card[] }) {
                 <button type="button" onClick={back} disabled={index === 0} className="inline-flex cursor-pointer items-center gap-1 hover:text-ink disabled:cursor-default disabled:opacity-40">
                   <ChevronLeft className="size-4" /> Previous
                 </button>
-                <span className="hidden sm:inline">Space: flip · 1/←: review again · 2/→: I knew it</span>
+                <span className="hidden sm:inline">
+                  {current.card.type === "mcq" && !flipped ? "A–D: pick · " : ""}Space: flip · 1/←: review again · 2/→: I knew it
+                </span>
               </div>
             </div>
           </>

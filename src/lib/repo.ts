@@ -1,7 +1,7 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
 import { exec, query, refresh, transaction, type Row } from "./db";
-import type { Card, CardType, Deck, DeckSource, DeckStatus, GenerationOptions, Material, Occlusion } from "./types";
+import type { Card, CardType, Choice, Deck, DeckSource, DeckStatus, GenerationOptions, Material, Occlusion } from "./types";
 
 const num = (v: unknown) => Number(v ?? 0);
 const str = (v: unknown) => (v == null ? "" : String(v));
@@ -188,18 +188,24 @@ export async function deleteDeck(id: string): Promise<void> {
 
 // ---------- Card ----------
 
+// Scelta multipla: le opzioni stanno nella colonna JSON "occlusions" (array di {text, correct}), così lo schema
+// dei Parquet non cambia; "back" contiene il testo della risposta corretta, quindi le versioni precedenti
+// dell'app le mostrano come normali card domanda/risposta.
 function toCard(r: Row): Card {
+  const type = (["cloze", "image_occlusion", "mcq"].includes(str(r.type)) ? str(r.type) : "basic") as CardType;
+  const json = parseJson<unknown[]>(r.occlusions, []);
   return {
     id: str(r.id),
     deckId: str(r.deck_id),
     position: num(r.position),
-    type: (["cloze", "image_occlusion"].includes(str(r.type)) ? str(r.type) : "basic") as CardType,
+    type,
     front: str(r.front),
     back: str(r.back),
     extra: str(r.extra),
     tags: parseJson<string[]>(r.tags, []),
     imageMaterialId: r.image_material_id == null ? null : str(r.image_material_id),
-    occlusions: parseJson<Occlusion[]>(r.occlusions, []),
+    occlusions: type === "mcq" ? [] : (json as Occlusion[]),
+    choices: type === "mcq" ? (json as Choice[]) : [],
     createdAt: num(r.created_at),
     updatedAt: num(r.updated_at),
   };
@@ -213,7 +219,13 @@ export type CardInput = {
   tags: string[];
   imageMaterialId?: string | null;
   occlusions?: Occlusion[];
+  choices?: Choice[];
 };
+
+/** Contenuto della colonna JSON "occlusions": maschere oppure, per la scelta multipla, le opzioni. */
+function jsonColumn(input: CardInput): string {
+  return JSON.stringify(input.type === "mcq" ? (input.choices ?? []) : (input.occlusions ?? []));
+}
 
 export async function listCards(deckId: string): Promise<Card[]> {
   const rows = await query(`SELECT * FROM cards WHERE deck_id = $1 ORDER BY position, created_at`, [deckId]);
@@ -242,7 +254,8 @@ export async function appendCards(deckId: string, inputs: CardInput[]): Promise<
         position: position++,
         ...input,
         imageMaterialId: input.imageMaterialId ?? null,
-        occlusions: input.occlusions ?? [],
+        occlusions: input.type === "mcq" ? [] : (input.occlusions ?? []),
+        choices: input.type === "mcq" ? (input.choices ?? []) : [],
         createdAt: now,
         updatedAt: now,
       };
@@ -251,7 +264,7 @@ export async function appendCards(deckId: string, inputs: CardInput[]): Promise<
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
         [
           card.id, deckId, card.position, card.type, card.front, card.back, card.extra, JSON.stringify(card.tags),
-          card.imageMaterialId, JSON.stringify(card.occlusions), now, now,
+          card.imageMaterialId, jsonColumn(input), now, now,
         ],
       );
       created.push(card);
@@ -269,7 +282,7 @@ export async function updateCard(deckId: string, cardId: string, input: CardInpu
        WHERE id = $9 AND deck_id = $10`,
       [
         input.type, input.front, input.back, input.extra, JSON.stringify(input.tags),
-        input.imageMaterialId ?? null, JSON.stringify(input.occlusions ?? []), now, cardId, deckId,
+        input.imageMaterialId ?? null, jsonColumn(input), now, cardId, deckId,
       ],
     );
     await tx.exec(`UPDATE decks SET updated_at = $1 WHERE id = $2`, [now, deckId]);
@@ -308,6 +321,7 @@ export async function copyDeck(source: Deck, owner: { id: string; name: string }
         tags: c.tags,
         imageMaterialId: c.imageMaterialId,
         occlusions: c.occlusions,
+        choices: c.choices,
       })),
     );
   }
