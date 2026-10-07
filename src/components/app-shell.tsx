@@ -1,6 +1,6 @@
 "use client";
 
-import { FolderOpen, GalleryVerticalEnd, KeyRound, LayoutDashboard, LogOut, Settings, Sparkles } from "lucide-react";
+import { CalendarDays, FolderOpen, GalleryVerticalEnd, KeyRound, LayoutDashboard, LogOut, Route, Settings, Sparkles } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState, type ReactNode } from "react";
@@ -11,6 +11,8 @@ import { cn } from "./styles";
 
 const NAV = [
   { href: "/", label: "Dashboard", short: "Home", icon: LayoutDashboard },
+  { href: "/today", label: "Today's path", short: "Today", icon: Route },
+  { href: "/plan", label: "Study calendar", short: "Plan", icon: CalendarDays },
   { href: "/materials", label: "Materials", short: "Materials", icon: FolderOpen },
   { href: "/generate", label: "Generate flashcards", short: "Generate", icon: Sparkles },
   { href: "/decks", label: "Decks", short: "Decks", icon: GalleryVerticalEnd },
@@ -172,7 +174,7 @@ export function AppShell({
 
       {/* Tab bar mobile */}
       <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-card/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-md lg:hidden">
-        <div className="mx-auto grid max-w-md grid-cols-4">
+        <div className="mx-auto grid max-w-lg grid-cols-6">
           {NAV.map(({ href, short, icon: Icon }) => {
             const active = isActive(pathname, href);
             return (
@@ -180,7 +182,7 @@ export function AppShell({
                 key={href}
                 href={href}
                 aria-current={active ? "page" : undefined}
-                className={cn("flex flex-col items-center gap-1 py-2.5 text-[11px] font-semibold", active ? "text-primary" : "text-ink-faint")}
+                className={cn("flex min-w-0 flex-col items-center gap-1 py-2.5 text-[10px] font-semibold sm:text-[11px]", active ? "text-primary" : "text-ink-faint")}
               >
                 <Icon className="size-5" strokeWidth={active ? 2.25 : 1.75} />
                 {short}

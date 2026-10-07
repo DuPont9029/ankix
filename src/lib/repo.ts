@@ -1,6 +1,8 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
 import { exec, query, refresh, transaction, type Row } from "./db";
+import type { ConceptMapData } from "./conceptmap";
+import type { MindMap, MindMapData } from "./mindmap";
 import type { Card, CardType, Choice, Deck, DeckSource, DeckStatus, GenerationOptions, Material, Occlusion } from "./types";
 
 const num = (v: unknown) => Number(v ?? 0);
@@ -180,10 +182,33 @@ export async function setDeckStatus(
 }
 
 export async function deleteDeck(id: string): Promise<void> {
+  await deleteDecks([id]);
+}
+
+/**
+ * Elimina i mazzi con le loro card e tutto ciò che vi fa riferimento: stato di studio, storico delle
+ * ripetizioni (il calendario non conta più quelle sessioni) e mappe mentali.
+ */
+export async function deleteDecks(ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  const list = ids.map((_, i) => `$${i + 1}`).join(", ");
   await transaction(async (tx) => {
-    await tx.exec(`DELETE FROM cards WHERE deck_id = $1`, [id]);
-    await tx.exec(`DELETE FROM decks WHERE id = $1`, [id]);
+    for (const table of ["cards", "card_states", "review_log", "mind_maps"]) {
+      await tx.exec(`DELETE FROM ${table} WHERE deck_id IN (${list})`, ids);
+    }
+    await tx.exec(`DELETE FROM decks WHERE id IN (${list})`, ids);
   });
+}
+
+/** Mazzi generati da un materiale (come sorgente o come immagine di image occlusion). */
+export async function listDecksUsingMaterial(materialId: string): Promise<Deck[]> {
+  const rows = await query(
+    `${DECK_SELECT} WHERE d.options LIKE $1 OR d.sources LIKE $1
+        OR d.id IN (SELECT deck_id FROM cards WHERE image_material_id = $2)`,
+    [`%${materialId}%`, materialId],
+  );
+  // Gli id sono UUID: la ricerca nel JSON di opzioni e sorgenti non può dare falsi positivi.
+  return rows.map(toDeck);
 }
 
 // ---------- Card ----------
@@ -230,6 +255,22 @@ function jsonColumn(input: CardInput): string {
 export async function listCards(deckId: string): Promise<Card[]> {
   const rows = await query(`SELECT * FROM cards WHERE deck_id = $1 ORDER BY position, created_at`, [deckId]);
   return rows.map(toCard);
+}
+
+/** Card di più mazzi in una sola query, ordinate per mazzo e posizione. */
+export async function listCardsForDecks(deckIds: string[]): Promise<Card[]> {
+  if (deckIds.length === 0) return [];
+  const placeholders = deckIds.map((_, i) => `$${i + 1}`).join(", ");
+  const rows = await query(`SELECT * FROM cards WHERE deck_id IN (${placeholders}) ORDER BY deck_id, position, created_at`, deckIds);
+  return rows.map(toCard);
+}
+
+/** Mazzi con gli id indicati (quelli inesistenti vengono ignorati). */
+export async function getDecksByIds(ids: string[]): Promise<Deck[]> {
+  if (ids.length === 0) return [];
+  const placeholders = ids.map((_, i) => `$${i + 1}`).join(", ");
+  const rows = await query(`${DECK_SELECT} WHERE d.id IN (${placeholders})`, ids);
+  return rows.map(toDeck);
 }
 
 export async function getCard(deckId: string, cardId: string): Promise<Card | null> {
@@ -290,7 +331,11 @@ export async function updateCard(deckId: string, cardId: string, input: CardInpu
 }
 
 export async function deleteCard(deckId: string, cardId: string): Promise<void> {
-  await exec(`DELETE FROM cards WHERE id = $1 AND deck_id = $2`, [cardId, deckId]);
+  await transaction(async (tx) => {
+    await tx.exec(`DELETE FROM cards WHERE id = $1 AND deck_id = $2`, [cardId, deckId]);
+    await tx.exec(`DELETE FROM card_states WHERE card_id = $1 AND deck_id = $2`, [cardId, deckId]);
+    await tx.exec(`DELETE FROM review_log WHERE card_id = $1 AND deck_id = $2`, [cardId, deckId]);
+  });
 }
 
 /** Copia privata di un mazzo (con tutte le card) per un altro utente. */
@@ -336,4 +381,51 @@ export async function stats(userId: string): Promise<{ materials: number; decks:
     [userId],
   );
   return { materials: num(row?.materials), decks: num(row?.decks), cards: num(row?.cards) };
+}
+
+// ---------- Mappe mentali ----------
+
+// Una mappa per studente e per mazzo: anche chi studia un mazzo pubblico di altri può crearne una sua.
+function toMindMap(r: Row): MindMap {
+  const data = parseJson<MindMapData & { concept?: ConceptMapData | null }>(r.data, { nodes: [], links: [] });
+  return {
+    id: str(r.id),
+    deckId: str(r.deck_id),
+    title: str(r.title),
+    model: str(r.model),
+    nodes: Array.isArray(data.nodes) ? data.nodes : [],
+    links: Array.isArray(data.links) ? data.links : [],
+    concept: data.concept && Array.isArray(data.concept.concepts) ? data.concept : null,
+    createdAt: num(r.created_at),
+    updatedAt: num(r.updated_at),
+  };
+}
+
+export async function getMindMap(userId: string, deckId: string): Promise<MindMap | null> {
+  const [row] = await query(`SELECT * FROM mind_maps WHERE user_id = $1 AND deck_id = $2`, [userId, deckId]);
+  return row ? toMindMap(row) : null;
+}
+
+export type MindMapInput = MindMapData & { title: string; model: string; concept: ConceptMapData | null };
+
+export async function saveMindMap(userId: string, deckId: string, map: MindMapInput): Promise<MindMap> {
+  const data = JSON.stringify({ nodes: map.nodes, links: map.links, concept: map.concept });
+  const now = Date.now();
+  return transaction(async (tx) => {
+    const [row] = await tx.query(`SELECT id, created_at FROM mind_maps WHERE user_id = $1 AND deck_id = $2`, [userId, deckId]);
+    if (row) {
+      await tx.exec(`UPDATE mind_maps SET title = $1, data = $2, model = $3, updated_at = $4 WHERE id = $5`, [map.title, data, map.model, now, str(row.id)]);
+      return { ...map, id: str(row.id), deckId, createdAt: num(row.created_at), updatedAt: now };
+    }
+    const id = newId();
+    await tx.exec(
+      `INSERT INTO mind_maps (id, deck_id, user_id, title, data, model, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [id, deckId, userId, map.title, data, map.model, now, now],
+    );
+    return { ...map, id, deckId, createdAt: now, updatedAt: now };
+  });
+}
+
+export async function deleteMindMap(userId: string, deckId: string): Promise<void> {
+  await exec(`DELETE FROM mind_maps WHERE user_id = $1 AND deck_id = $2`, [userId, deckId]);
 }

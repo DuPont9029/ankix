@@ -84,6 +84,16 @@ async function requestJson<T>(cred: AiCredentials, req: JsonRequest, parse: (jso
   throw lastError instanceof AiError ? lastError : backend.friendlyError(lastError, cred.model);
 }
 
+/** Richiesta JSON generica (es. mappe mentali), con lo stesso limite di generazioni simultanee per chiave. */
+export async function generateStructured<T>(cred: AiCredentials, req: JsonRequest, parse: (json: unknown) => T): Promise<T> {
+  const release = await acquire(cred.apiKey);
+  try {
+    return await requestJson(cred, req, parse);
+  } finally {
+    release();
+  }
+}
+
 export async function generateFlashcards(
   sources: SourceFile[],
   opts: GenerationOptions,

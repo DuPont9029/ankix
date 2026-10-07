@@ -27,14 +27,15 @@ import { LEGACY_SUBJECTS } from "./subjects";
 export type SqlParam = string | number | boolean | null | undefined;
 export type Row = Record<string, unknown>;
 
-const TABLES = ["users", "materials", "decks", "cards"] as const;
+const TABLES = ["users", "materials", "decks", "cards", "card_states", "review_log", "study_prefs", "mind_maps"] as const;
 type Table = (typeof TABLES)[number];
 
 type Manifest = {
   format: 1;
   version: number;
   updatedAt: number;
-  tables: Record<Table, string>;
+  /** Le tabelle aggiunte dopo la creazione del bucket mancano finché non vengono scritte la prima volta (= vuote). */
+  tables: Partial<Record<Table, string>>;
   garbage: { key: string; at: number }[];
 };
 
@@ -101,6 +102,51 @@ const SCHEMA = [
     tags VARCHAR NOT NULL DEFAULT '[]',
     image_material_id VARCHAR,
     occlusions VARCHAR NOT NULL DEFAULT '[]',
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL
+  )`,
+  // Ripetizione dilazionata: stato FSRS di ogni elemento studiato (card, singola cloze o maschera) per utente.
+  // Niente PRIMARY KEY: gli upsert sono gestiti nel codice (vedi study.ts).
+  `CREATE TABLE card_states (
+    user_id VARCHAR NOT NULL,
+    item_key VARCHAR NOT NULL,
+    card_id VARCHAR NOT NULL,
+    deck_id VARCHAR NOT NULL,
+    state VARCHAR NOT NULL,
+    step INTEGER NOT NULL DEFAULT 0,
+    due BIGINT NOT NULL,
+    stability DOUBLE NOT NULL,
+    difficulty DOUBLE NOT NULL,
+    reps INTEGER NOT NULL DEFAULT 0,
+    lapses INTEGER NOT NULL DEFAULT 0,
+    last_review BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL
+  )`,
+  `CREATE TABLE review_log (
+    id VARCHAR NOT NULL,
+    user_id VARCHAR NOT NULL,
+    item_key VARCHAR NOT NULL,
+    card_id VARCHAR NOT NULL,
+    deck_id VARCHAR NOT NULL,
+    rating INTEGER NOT NULL,
+    state VARCHAR NOT NULL,
+    elapsed_days DOUBLE NOT NULL,
+    scheduled_days DOUBLE NOT NULL,
+    duration_ms INTEGER NOT NULL,
+    reviewed_at BIGINT NOT NULL
+  )`,
+  `CREATE TABLE study_prefs (
+    user_id VARCHAR NOT NULL,
+    data VARCHAR NOT NULL,
+    updated_at BIGINT NOT NULL
+  )`,
+  `CREATE TABLE mind_maps (
+    id VARCHAR NOT NULL,
+    deck_id VARCHAR NOT NULL,
+    user_id VARCHAR NOT NULL,
+    title VARCHAR NOT NULL,
+    data VARCHAR NOT NULL,
+    model VARCHAR NOT NULL,
     created_at BIGINT NOT NULL,
     updated_at BIGINT NOT NULL
   )`,
@@ -174,16 +220,24 @@ async function applyManifest(state: DbState, manifest: Manifest): Promise<void> 
     state.manifest = manifest;
     return;
   }
-  const files: [Table, Uint8Array][] = [];
+  const files: [Table, Uint8Array | null][] = [];
   for (const table of changed) {
-    const bytes = await getObjectBytesIfExists(manifest.tables[table]);
-    if (!bytes) throw new Error(`File mancante per la tabella ${table}: ${manifest.tables[table]}`);
+    const key = manifest.tables[table];
+    if (!key) {
+      files.push([table, null]);
+      continue;
+    }
+    const bytes = await getObjectBytesIfExists(key);
+    if (!bytes) throw new Error(`File mancante per la tabella ${table}: ${key}`);
     files.push([table, bytes]);
   }
   const conn = state.connection;
   await conn.run("BEGIN TRANSACTION");
   try {
-    for (const [table, bytes] of files) await loadTableFile(conn, table, bytes);
+    for (const [table, bytes] of files) {
+      if (bytes) await loadTableFile(conn, table, bytes);
+      else await conn.run(`DELETE FROM ${table}`);
+    }
     await conn.run("COMMIT");
   } catch (err) {
     await conn.run("ROLLBACK").catch(() => undefined);
@@ -264,10 +318,11 @@ async function bootstrap(state: DbState, haveLock: boolean): Promise<void> {
         await changed(conn, `UPDATE decks SET subject = $1 WHERE subject = $2`, [current, legacy]);
       }
       await changed(conn, `DELETE FROM cards WHERE deck_id NOT IN (SELECT id FROM decks)`);
-      const tables = {} as Record<Table, string>;
+      const tables: Partial<Record<Table, string>> = {};
       for (const table of TABLES) {
-        tables[table] = await uploadTable(conn, table, 1);
-        uploaded.push(tables[table]);
+        const key = await uploadTable(conn, table, 1);
+        tables[table] = key;
+        uploaded.push(key);
       }
       lock.assertValid();
       const manifest: Manifest = { format: 1, version: 1, updatedAt: Date.now(), tables, garbage: [] };
@@ -401,7 +456,8 @@ export function transaction<T>(fn: (tx: Tx) => Promise<T>): Promise<T> {
           if (!dirty.has(table)) continue;
           const key = await uploadTable(conn, table, version);
           uploaded.push(key);
-          garbage.push({ key: tables[table], at: now });
+          const previous = tables[table];
+          if (previous) garbage.push({ key: previous, at: now });
           tables[table] = key;
         }
         expired = garbage.filter((g) => now - g.at > GC_AFTER_MS);

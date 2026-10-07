@@ -76,7 +76,16 @@ export async function readPdfText(blob: Blob): Promise<string> {
   const pages: string[] = [];
   for (let i = 1; i <= doc.numPages; i++) {
     const content = await (await doc.getPage(i)).getTextContent();
-    pages.push(content.items.map((it) => it.str ?? "").join(" "));
+    // I PDF delle slide spezzano il testo in molti frammenti con spazi propri: gli spazi multipli
+    // occuperebbero inutilmente il contesto (piccolo) del modello locale.
+    pages.push(
+      content.items
+        .map((it) => it.str ?? "")
+        .join(" ")
+        .replace(/[ \t\u00a0]+/g, " ")
+        .replace(/ ([.,;:!?)])/g, "$1")
+        .trim(),
+    );
   }
   return pages.join("\n\n");
 }
@@ -115,7 +124,7 @@ export async function ocr(canvas: HTMLCanvasElement): Promise<{ text: string; wo
 
 /** Testo di un materiale: diretto per testo e PDF, con OCR per le immagini. */
 export async function materialText(m: LocalMaterial, blob: Blob): Promise<string> {
-  if (m.mimeType.startsWith("text/")) return blob.text();
+  if (m.mimeType.startsWith("text/")) return (await blob.text()).replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n");
   if (m.mimeType === "application/pdf") {
     const text = await readPdfText(blob);
     if (!/\p{L}{3}/u.test(text)) throw new Error("no text found in the PDF (is it a scan? Upload the pages as images or use a cloud AI)");
