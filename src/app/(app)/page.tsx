@@ -1,4 +1,4 @@
-import { ArrowRight, BookOpenCheck, CheckCircle2, Download, FileUp, FolderOpen, GalleryVerticalEnd, Layers, LayoutGrid, Sparkles, Upload, Zap } from "lucide-react";
+import { ArrowRight, BookOpenCheck, CalendarDays, CheckCircle2, Flame, Play, Route, Download, FileUp, FolderOpen, GalleryVerticalEnd, Layers, LayoutGrid, Sparkles, Upload, Zap } from "lucide-react";
 import Link from "next/link";
 import { DeckCard } from "@/components/deck-card";
 import { FileIcon, fileKind } from "@/components/file-icon";
@@ -8,6 +8,7 @@ import { EmptyState, SectionTitle, SubjectBadge } from "@/components/ui";
 import { getCurrentUser } from "@/lib/current-user";
 import { formatBytes } from "@/lib/files";
 import { listDecks, listMaterials, stats } from "@/lib/repo";
+import { buildPlan } from "@/lib/study";
 
 export const dynamic = "force-dynamic";
 
@@ -21,12 +22,19 @@ function SeeAll({ href, children }: { href: string; children: React.ReactNode })
 
 export default async function DashboardPage() {
   const user = (await getCurrentUser())!;
-  const [totals, myDecks, publicDecks, materials] = await Promise.all([
+  const [totals, myDecks, publicDecks, materials, plan] = await Promise.all([
     stats(user.id),
     listDecks(user.id, "mine"),
     listDecks(user.id, "public"),
     listMaterials(),
+    buildPlan(user.id),
   ]);
+  const planCounts = { review: 0, fresh: 0 };
+  for (const it of plan.items) {
+    if (it.stage === "new") planCounts.fresh++;
+    else planCounts.review++;
+  }
+  const planMinutes = Math.max(1, Math.round(((planCounts.review + planCounts.fresh * 2.5) * plan.adaptation.avgSeconds) / 60));
   const firstName = user.name.split(" ")[0];
 
   const tiles = [
@@ -87,6 +95,46 @@ export default async function DashboardPage() {
           </div>
         </div>
       </section>
+
+      {plan.decks.length > 0 && (
+        <section className="flex flex-col gap-4 rounded-lg border border-primary/40 bg-primary-soft p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
+          <div className="flex items-start gap-4">
+            <span className="grid size-11 shrink-0 place-items-center rounded-md bg-primary text-on-primary">
+              <Route className="size-5" />
+            </span>
+            <div>
+              <p className="eyebrow text-accent">Today&apos;s path{plan.restDay ? " · rest day" : ""}</p>
+              {plan.items.length > 0 ? (
+                <p className="mt-0.5 font-serif text-[22px] leading-7 font-semibold text-heading">
+                  {planCounts.review} reviews · {planCounts.fresh} new cards · ~{planMinutes} min
+                </p>
+              ) : (
+                <p className="mt-0.5 font-serif text-[22px] leading-7 font-semibold text-heading">
+                  {plan.done.reviews > 0 ? "Done for today. See you tomorrow!" : "Nothing due today."}
+                </p>
+              )}
+              <p className="mt-1 flex flex-wrap items-center gap-x-3 text-[13px] text-ink-muted">
+                {plan.streak > 0 && (
+                  <span className="flex items-center gap-1">
+                    <Flame className="size-3.5 text-accent" /> {plan.streak}-day streak
+                  </span>
+                )}
+                <span>Spaced repetition, starting easy and adding new material gradually.</span>
+              </p>
+            </div>
+          </div>
+          <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
+            {plan.items.length > 0 && (
+              <Link href="/today" className={buttonClass("primary", "lg")}>
+                <Play className="size-[18px]" /> Start
+              </Link>
+            )}
+            <Link href="/plan" className={buttonClass("secondary", "lg")}>
+              <CalendarDays className="size-[18px]" /> Calendar
+            </Link>
+          </div>
+        </section>
+      )}
 
       <section className="grid grid-cols-1 gap-4 md:grid-cols-3">
         {tiles.map(({ label, value, unit, link, icon: Icon, href }) => (

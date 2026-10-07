@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { getCurrentUser } from "@/lib/current-user";
 import { getAiStatus } from "@/lib/ai/settings";
 import { canViewDeck, getDeck, getMaterialsByIds, isDeckOwner, listCards } from "@/lib/repo";
+import { deckProgress } from "@/lib/study";
 import { DeckView } from "./deck-view";
 
 export const dynamic = "force-dynamic";
@@ -31,6 +32,7 @@ export default async function DeckPage({ params }: PageProps<"/decks/[id]">) {
     owner ? getAiStatus(user) : null,
     owner ? getMaterialsByIds(deck.options.materialIds) : [],
   ]);
+  const progress = await deckProgress(user.id, id, cards);
   const sourceMaterials = materials.map((m) => ({ id: m.id, title: m.title, filename: m.filename, mimeType: m.mimeType }));
-  return <DeckView initialDeck={deck} initialCards={cards} isOwner={owner} aiStatus={aiStatus} sourceMaterials={sourceMaterials} />;
+  return <DeckView initialDeck={deck} initialCards={cards} isOwner={owner} aiStatus={aiStatus} sourceMaterials={sourceMaterials} progress={progress} />;
 }

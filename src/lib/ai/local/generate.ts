@@ -45,6 +45,9 @@ type RunArgs = {
 const CHUNK_CHARS = 8000;
 const MAX_PER_CHUNK = 15;
 
+/** Oltre questa lunghezza la risposta non sta più scrivendo card utili (un quiz completo è ~400 caratteri). */
+const maxOutputChars = (cards: number) => 1500 + cards * 550;
+
 const LANGUAGE = { it: "ITALIAN", en: "ENGLISH" } as const;
 
 const DIFFICULTY: Record<GenerationOptions["difficulty"], string> = {
@@ -306,6 +309,7 @@ async function generateFlashcards(args: RunArgs): Promise<LocalRunResult> {
         system: systemPrompt(options.language),
         onText: (t) => args.onText(t, false),
         signal,
+        maxChars: maxOutputChars(perChunk),
       });
     } catch (err) {
       if (err instanceof AbortedError) {
@@ -325,6 +329,7 @@ async function generateFlashcards(args: RunArgs): Promise<LocalRunResult> {
           system: systemPrompt(options.language),
           onText: (t) => args.onText(t, false),
           signal,
+          maxChars: maxOutputChars(missing),
         });
         parsed = [...parsed, ...parseOutput(extra, "mcq")];
       } catch (err) {
@@ -446,7 +451,7 @@ async function generateOcclusions(args: RunArgs): Promise<LocalRunResult> {
     args.onProgress({ phase: "generating", message: `Choosing the labels to hide on "${image.title}"`, step: i + 1, steps: images.length, cards: cards.length });
     let chosen: typeof labels;
     try {
-      const out = await runPrompt(pickPrompt(labels, image.title, args.subject), { onText: (t) => args.onText(t, false), signal });
+      const out = await runPrompt(pickPrompt(labels, image.title, args.subject), { onText: (t) => args.onText(t, false), signal, maxChars: 1500 });
       const picked = [...new Set([...out.matchAll(/\d+/g)].map((m) => Number(m[0]) - 1))].filter((n) => n >= 0 && n < labels.length);
       chosen = picked.map((n) => labels[n]);
       if (chosen.length === 0) chosen = labels.filter((l) => looksLikeLabel(l.text));

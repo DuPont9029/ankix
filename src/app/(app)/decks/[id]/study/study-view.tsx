@@ -3,23 +3,12 @@
 import { ArrowLeft, Check, ChevronLeft, RotateCcw, Shuffle, Trophy, X } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CardHtml, ChoicesHtml, ClozeHtml } from "@/components/cards/card-html";
-import { OcclusionView } from "@/components/cards/occlusion-view";
+import { Face } from "@/components/study/card-face";
 import { Button, EmptyState, SubjectBadge, buttonClass, cn } from "@/components/ui";
-import { clozeNumbers } from "@/lib/cloze";
+import { expandCards, type StudyItem } from "@/lib/items";
 import type { Card, Deck } from "@/lib/types";
 
-type Item = { key: string; card: Card; cloze: number | null };
-
-function expand(cards: Card[]): Item[] {
-  return cards.flatMap((card): Item[] =>
-    card.type === "cloze"
-      ? clozeNumbers(card.front).map((n) => ({ key: `${card.id}:${n}`, card, cloze: n }))
-      : card.type === "image_occlusion"
-        ? card.occlusions.map((o, i) => ({ key: `${card.id}:${o.id}`, card, cloze: i + 1 }))
-        : [{ key: card.id, card, cloze: null }],
-  );
-}
+type Item = StudyItem;
 
 function shuffled<T>(arr: T[]): T[] {
   const a = [...arr];
@@ -30,56 +19,8 @@ function shuffled<T>(arr: T[]): T[] {
   return a;
 }
 
-function Face({ item, side, picked, onPick }: { item: Item; side: "front" | "back"; picked: number | null; onPick: (i: number) => void }) {
-  const { card, cloze } = item;
-  if (card.type === "mcq") {
-    return (
-      <div className="w-full space-y-5">
-        <CardHtml html={card.front} className={cn("font-serif text-ink", side === "front" ? "text-[21px] leading-9 sm:text-[24px]" : "text-[17px] leading-7")} />
-        <ChoicesHtml choices={card.choices} reveal={side === "back"} picked={picked} onPick={side === "front" ? onPick : undefined} />
-        {side === "back" && card.extra && <CardHtml html={card.extra} className="border-l-2 border-accent pl-3 text-left text-[13px] text-ink-muted" />}
-      </div>
-    );
-  }
-  if (card.type === "image_occlusion" && card.imageMaterialId && cloze !== null) {
-    const active = cloze - 1;
-    return (
-      <div className="w-full space-y-4">
-        {card.front && <p className="font-serif text-[17px] leading-7 text-ink">{card.front}</p>}
-        <div className="flex justify-center">
-          <OcclusionView materialId={card.imageMaterialId} occlusions={card.occlusions} mode={{ kind: "study", active, revealed: side === "back" }} />
-        </div>
-        {side === "back" && (
-          <>
-            <p className="text-[17px] font-semibold text-heading">{card.occlusions[active]?.label}</p>
-            {card.extra && <CardHtml html={card.extra} className="border-l-2 border-accent pl-3 text-left text-[13px] text-ink-muted" />}
-          </>
-        )}
-      </div>
-    );
-  }
-  if (card.type === "cloze") {
-    return (
-      <div className="space-y-5">
-        <ClozeHtml text={card.front} active={cloze} reveal={side === "back"} className="font-serif text-[21px] leading-9 text-ink sm:text-[24px]" />
-        {side === "back" && card.extra && (
-          <CardHtml html={card.extra} className="border-l-2 border-accent pl-3 text-left text-[13px] text-ink-muted" />
-        )}
-      </div>
-    );
-  }
-  if (side === "front") return <CardHtml html={card.front} className="font-serif text-[21px] leading-9 text-ink sm:text-[24px]" />;
-  return (
-    <div className="space-y-5">
-      <CardHtml html={card.front} className="font-serif text-[15px] text-ink-muted italic" />
-      <CardHtml html={card.back} className="text-[17px] leading-7 font-medium text-ink sm:text-lg" />
-      {card.extra && <CardHtml html={card.extra} className="border-l-2 border-accent pl-3 text-left text-[13px] text-ink-muted" />}
-    </div>
-  );
-}
-
 export function StudyView({ deck, cards }: { deck: Deck; cards: Card[] }) {
-  const all = useMemo(() => expand(cards), [cards]);
+  const all = useMemo(() => expandCards(cards), [cards]);
   const [queue, setQueue] = useState<Item[]>(all);
   const [index, setIndex] = useState(0);
   const [flipped, setFlipped] = useState(false);
@@ -168,9 +109,14 @@ export function StudyView({ deck, cards }: { deck: Deck; cards: Card[] }) {
           <ArrowLeft className="size-4 shrink-0" />
           <span className="truncate">{deck.title}</span>
         </Link>
-        <Button variant="ghost" size="sm" onClick={() => restart(all, true)}>
-          <Shuffle className="size-4" /> Shuffle
-        </Button>
+        <div className="flex items-center gap-2">
+          <span className="hidden text-[12px] text-ink-faint sm:inline" title="Answers here do not change your spaced-repetition schedule">
+            Practice mode
+          </span>
+          <Button variant="ghost" size="sm" onClick={() => restart(all, true)}>
+            <Shuffle className="size-4" /> Shuffle
+          </Button>
+        </div>
       </div>
 
       <div className="mb-6">

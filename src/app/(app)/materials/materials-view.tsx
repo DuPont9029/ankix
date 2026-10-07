@@ -3,16 +3,18 @@
 import { Check, CheckCircle2, Eye, FolderOpen, Plus, RefreshCw, Search, ShieldCheck, Sparkles, Trash2, UserRound } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { FileIcon } from "@/components/file-icon";
 import { RelativeTime } from "@/components/relative-time";
-import { Button, ConfirmDialog, EmptyState, Input, PageHeader, Select, SubjectBadge, buttonClass, cn } from "@/components/ui";
+import { Button, EmptyState, Input, Modal, PageHeader, Select, Spinner, SubjectBadge, buttonClass, cn } from "@/components/ui";
 import { api, errorMessage } from "@/lib/client";
 import { formatBytes } from "@/lib/files";
 import { subjectTone } from "@/lib/subjects-style";
 import type { Material } from "@/lib/types";
 import { UploadDialog } from "./upload-dialog";
+
+type LinkedDeck = { id: string; title: string; cardCount: number };
 
 export function MaterialsView({
   initialMaterials,
@@ -30,7 +32,26 @@ export function MaterialsView({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [uploadOpen, setUploadOpen] = useState(false);
   const [toDelete, setToDelete] = useState<Material | null>(null);
-  const [deleting, setDeleting] = useState(false);
+  const [deleting, setDeleting] = useState<"material" | "all" | null>(null);
+  /** Mazzi generati dal materiale da eliminare (null = in caricamento) */
+  const [linked, setLinked] = useState<{ id: string | null; decks: LinkedDeck[]; othersCount: number } | null>(null);
+
+  useEffect(() => {
+    if (!toDelete) return;
+    let cancelled = false;
+    api<{ decks: LinkedDeck[]; othersCount: number }>(`/api/materials/${toDelete.id}`)
+      .then((res) => {
+        if (!cancelled) setLinked({ id: toDelete.id, ...res });
+      })
+      .catch(() => {
+        // Senza l'elenco si può comunque eliminare il solo materiale.
+        if (!cancelled) setLinked({ id: toDelete.id, decks: [], othersCount: 0 });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [toDelete]);
+  const linkedFor = linked && toDelete && linked.id === toDelete.id ? linked : null;
   const [refreshing, setRefreshing] = useState(false);
 
   const subjectCounts = useMemo(() => {
@@ -72,24 +93,24 @@ export function MaterialsView({
     }
   }
 
-  async function confirmDelete() {
+  async function confirmDelete(withDecks: boolean) {
     if (!toDelete) return;
-    setDeleting(true);
+    setDeleting(withDecks ? "all" : "material");
     try {
-      await api(`/api/materials/${toDelete.id}`, { method: "DELETE" });
+      const res = await api<{ deletedDecks: number }>(`/api/materials/${toDelete.id}${withDecks ? "?withDecks=1" : ""}`, { method: "DELETE" });
       setMaterials((prev) => prev.filter((m) => m.id !== toDelete.id));
       setSelected((prev) => {
         const next = new Set(prev);
         next.delete(toDelete.id);
         return next;
       });
-      toast.success("Material deleted");
+      toast.success(res.deletedDecks ? `Material and ${res.deletedDecks} ${res.deletedDecks === 1 ? "deck" : "decks"} deleted` : "Material deleted");
       setToDelete(null);
       router.refresh();
     } catch (err) {
       toast.error(errorMessage(err));
     } finally {
-      setDeleting(false);
+      setDeleting(null);
     }
   }
 
@@ -286,18 +307,68 @@ export function MaterialsView({
           router.refresh();
         }}
       />
-      <ConfirmDialog
+      <Modal
         open={toDelete !== null}
-        onClose={() => setToDelete(null)}
-        onConfirm={confirmDelete}
-        loading={deleting}
+        onClose={() => (deleting ? undefined : setToDelete(null))}
         title="Delete this material?"
-        description={
+        footer={
           <>
-            <strong>{toDelete?.title}</strong> will be removed from the bucket and will no longer be available to anyone. Decks already generated will not be deleted.
+            <Button variant="secondary" onClick={() => setToDelete(null)} disabled={deleting !== null}>
+              Cancel
+            </Button>
+            {linkedFor && linkedFor.decks.length > 0 ? (
+              <>
+                <Button variant="secondary" onClick={() => confirmDelete(false)} loading={deleting === "material"} disabled={deleting !== null}>
+                  Keep the decks
+                </Button>
+                <Button variant="danger" onClick={() => confirmDelete(true)} loading={deleting === "all"} disabled={deleting !== null}>
+                  Delete material and {linkedFor.decks.length === 1 ? "deck" : `${linkedFor.decks.length} decks`}
+                </Button>
+              </>
+            ) : (
+              <Button variant="danger" onClick={() => confirmDelete(false)} loading={deleting === "material"} disabled={deleting !== null || !linkedFor}>
+                Delete
+              </Button>
+            )}
           </>
         }
-      />
+      >
+        <div className="space-y-3 text-sm text-ink-muted">
+          <p>
+            <strong className="text-ink">{toDelete?.title}</strong> will be removed from the bucket and will no longer be available to anyone.
+          </p>
+          {!linkedFor ? (
+            <p className="flex items-center gap-2">
+              <Spinner className="size-4" /> Looking for decks generated from it…
+            </p>
+          ) : linkedFor.decks.length > 0 ? (
+            <>
+              <p>
+                You generated {linkedFor.decks.length === 1 ? "this deck" : "these decks"} from it. Do you also want to delete{" "}
+                {linkedFor.decks.length === 1 ? "it" : "them"}?
+              </p>
+              <ul className="space-y-1 rounded-md border border-line bg-sunken p-2.5">
+                {linkedFor.decks.map((d) => (
+                  <li key={d.id} className="flex items-center justify-between gap-3 text-[13px]">
+                    <span className="truncate font-medium text-ink">{d.title}</span>
+                    <span className="shrink-0 tabular-nums">{d.cardCount} cards</span>
+                  </li>
+                ))}
+              </ul>
+              <p className="text-[12px] text-ink-faint">
+                Deleting the decks also removes their cards, their study history from the calendar and their mind maps.
+                {linkedFor.othersCount > 0 &&
+                  ` ${linkedFor.othersCount} ${linkedFor.othersCount === 1 ? "deck" : "decks"} of other students made from this material will not be touched.`}
+              </p>
+            </>
+          ) : (
+            <p>
+              No deck of yours was generated from it.
+              {linkedFor.othersCount > 0 && ` ${linkedFor.othersCount} ${linkedFor.othersCount === 1 ? "deck" : "decks"} of other students will keep their cards.`}
+            </p>
+          )}
+        </div>
+      </Modal>
     </div>
   );
 }

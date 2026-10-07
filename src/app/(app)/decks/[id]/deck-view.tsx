@@ -4,6 +4,8 @@ import {
   AlertTriangle,
   ArrowLeft,
   BookOpen,
+  CalendarCheck2,
+  Network,
   Bot,
   CheckCircle2,
   Clock3,
@@ -42,6 +44,7 @@ import type { LocalMaterial } from "@/lib/ai/local/extract";
 import { LOCAL_MODEL_LABEL, PROVIDER_INFO, providerReady, type AiProvider, type AiStatus } from "@/lib/ai/providers";
 import { api, errorMessage } from "@/lib/client";
 import { SUBJECTS } from "@/lib/subjects";
+import type { DeckProgress } from "@/lib/study";
 import type { Card, Deck } from "@/lib/types";
 import { useApiErrorToast } from "@/lib/use-api-error";
 import { useMediaQuery } from "@/lib/use-media-query";
@@ -83,6 +86,50 @@ function GeneratingBanner({ since, model }: { since: number; model: string }) {
         </div>
       </div>
       <p className="mt-3 text-xs text-ink-muted">You can leave this page: generation continues on the server.</p>
+    </div>
+  );
+}
+
+/** Avanzamento personale: imparate, in apprendimento, nuove (con la data d'esame, se impostata). */
+function ProgressStrip({ progress, deckId }: { progress: DeckProgress; deckId: string }) {
+  const learned = progress.total - progress.fresh - progress.learning;
+  const segments = [
+    { label: "Mastered", value: progress.mature, className: "bg-primary" },
+    { label: "Learned", value: learned - progress.mature, className: "bg-primary/55" },
+    { label: "Learning", value: progress.learning, className: "bg-warning" },
+    { label: "New", value: progress.fresh, className: "bg-muted-strong" },
+  ];
+  return (
+    <div className="mb-6 rounded-lg border border-line bg-card p-4 shadow-card">
+      <div className="mb-2.5 flex flex-wrap items-baseline justify-between gap-2">
+        <p className="eyebrow text-ink-muted">Your progress</p>
+        <p className="text-[12px] text-ink-muted">
+          {progress.due > 0 ? <span className="font-semibold text-ink">{progress.due} due today</span> : "Nothing due today"}
+          {progress.exam && (
+            <>
+              {" · "}exam on {new Date(`${progress.exam}T12:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "long", timeZone: "UTC" })}
+            </>
+          )}
+          {" · "}
+          <Link href="/plan" className="font-semibold text-accent hover:underline">
+            {progress.exam ? "Change" : "Set exam date"}
+          </Link>
+          {" · "}
+          <Link href={`/decks/${deckId}/map`} className="font-semibold text-accent hover:underline">
+            Mind map
+          </Link>
+        </p>
+      </div>
+      <div className="flex h-2 overflow-hidden rounded-full bg-muted">
+        {segments.map((seg) => seg.value > 0 && <div key={seg.label} className={seg.className} style={{ width: `${(seg.value / progress.total) * 100}%` }} />)}
+      </div>
+      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-ink-muted">
+        {segments.map((seg) => (
+          <span key={seg.label} className="flex items-center gap-1.5">
+            <span className={cn("size-2 rounded-full", seg.className)} /> {seg.label} <span className="font-semibold text-ink tabular-nums">{seg.value}</span>
+          </span>
+        ))}
+      </div>
     </div>
   );
 }
@@ -265,6 +312,7 @@ export function DeckView({
   isOwner,
   aiStatus,
   sourceMaterials,
+  progress,
 }: {
   initialDeck: Deck;
   initialCards: Card[];
@@ -273,6 +321,8 @@ export function DeckView({
   aiStatus: AiStatus | null;
   /** Materiali ancora esistenti del mazzo (per il modello locale, che li legge nel browser) */
   sourceMaterials: LocalMaterial[];
+  /** Avanzamento dello studente con la ripetizione dilazionata */
+  progress: DeckProgress;
 }) {
   const router = useRouter();
   const showError = useApiErrorToast();
@@ -516,10 +566,16 @@ export function DeckView({
             )}
             {cards.length > 0 && (
               <>
-                <Link href={`/decks/${deck.id}/study`} className={buttonClass("secondary")}>
-                  <BookOpen className="size-4" /> Study in browser
+                <Link href={`/decks/${deck.id}/study?mode=due`} className={buttonClass(progress.due > 0 ? "primary" : "secondary")}>
+                  <CalendarCheck2 className="size-4" /> {progress.due > 0 ? `Review due (${progress.due})` : "Study"}
                 </Link>
-                <a href={exportHref} download className={buttonClass("primary")}>
+                <Link href={`/decks/${deck.id}/study`} className={buttonClass("secondary")} title="Go through every card without affecting the schedule">
+                  <BookOpen className="size-4" /> Practise all
+                </Link>
+                <Link href={`/decks/${deck.id}/map`} className={buttonClass("secondary")}>
+                  <Network className="size-4" /> Mind map
+                </Link>
+                <a href={exportHref} download className={buttonClass(progress.due > 0 ? "secondary" : "primary")}>
                   <Download className="size-4" /> Export to Anki (.apkg)
                 </a>
               </>
@@ -544,6 +600,8 @@ export function DeckView({
           </Button>
         </div>
       )}
+
+      {progress.total > 0 && <ProgressStrip progress={progress} deckId={deck.id} />}
 
       {/* Statistiche + visibilità */}
       <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -731,7 +789,7 @@ export function DeckView({
         title="Delete this deck?"
         description={
           <>
-            <strong>{deck.title}</strong> and all of its {cards.length} cards will be permanently deleted.
+            <strong>{deck.title}</strong> and all of its {cards.length} cards will be permanently deleted, together with its study history in the calendar and its mind map.
           </>
         }
         confirmLabel="Delete deck"

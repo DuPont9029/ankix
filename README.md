@@ -10,6 +10,14 @@ Sito per una classe di Medicina che trasforma i materiali del corso (PDF, immagi
 - **Generazione AI**: l'AI legge i materiali e crea card *domanda/risposta* e *cloze* pensate per gli esami di Medicina, con livello, numero di card, lingua e istruzioni personalizzabili.
 - **Image occlusion**: dalle immagini (tavole anatomiche, vetrini, schemi) l'AI individua etichette (con il modello locale: OCR delle etichette con Tesseract e scelta di quelle da coprire) e strutture e crea card con maschere; si possono correggere e disegnare a mano. L'export usa il note type *Image Occlusion* di Anki (serve Anki 23.10+ / AnkiMobile / AnkiDroid aggiornati) con le immagini incluse nel pacchetto.
 - **Revisione**: si possono modificare, aggiungere ed eliminare card, generarne altre senza duplicati e fare un ripasso direttamente nel browser.
+- **Piano di studio con ripetizione dilazionata**: algoritmo **FSRS-5** (lo stesso di Anki), valutazioni *Again / Hard / Good / Easy* con l'intervallo mostrato su ogni pulsante.
+- **Percorso graduale di ogni giorno** (*Today*): riscaldamento con card facili → ripetizioni dalla più facile alla più difficile → nuove card → consolidamento di quelle ancora in apprendimento. Con l'**avvio graduale** le nuove card partono dal 30% e crescono del 10% per ogni giorno di studio.
+- **Adattamento alla persona**: tempo giornaliero, nuove card al giorno, ricordo desiderato e giorni di studio; il piano misura il ritmo reale (secondi per card) e quanto si ricorda davvero, e corregge intervalli e nuove card (meno nuove se ci sono arretrati o il ricordo cala). Data d'esame per mazzo: tutte le card viste in tempo e nessuna ripetizione dopo l'esame. Evidenzia mazzi deboli e card dimenticate spesso.
+- **Calendario** (*Plan*): storico giorno per giorno (risposte, % ricordate, minuti), previsione delle ripetizioni e delle nuove card, giorni di riposo, esami e serie di giorni consecutivi.
+- **Mappe mentali e mappe concettuali** per ogni mazzo, generate dall'AI (cloud o locale) a partire dalle card:
+  - *mappa mentale*: argomento al centro e rami radiali (si può creare anche senza AI, dai tag);
+  - *mappa concettuale* (Novak): domanda focale, concetti disposti dal più generale in alto al più specifico, frecce con parola-legame che si leggono come proposizioni ("Meiosi → produce → cellule aploidi") e legami trasversali tra aree diverse; elenco delle proposizioni modificabile e **modalità esercizio** che nasconde parole-legame o concetti da completare.
+  Entrambe sono modificabili, collegano le card a concetti e proposizioni (da studiare a parte) e si esportano in SVG.
 - **Export**: pacchetto `.apkg` pronto da importare in Anki (mazzo `Medicina::<Materia>::<Titolo>`, tag per argomento), oppure CSV.
 - **Database sul bucket S3** (come nel progetto mailsender): tabelle Parquet in `<S3_PREFIX>/db/` lette con DuckDB, con lock distribuito per funzionare su più istanze Vercel in parallelo.
 
@@ -101,7 +109,9 @@ Se il CORS non è configurato l'app **ripiega automaticamente** sul caricamento 
    - duplicati rimossi (anche rispetto alle card già presenti quando si usa *Genera altre*),
    - tag normalizzati per Anki.
    Errori di quota (429) o temporanei vengono ritentati automaticamente, poi mostrati con un messaggio chiaro e il pulsante *Riprova*.
-5. **Export `.apkg`**: note type dedicati *Ankix Base* (Fronte/Retro/Extra) e *Ankix Cloze* (Testo/Extra), con stile chiaro/scuro. I GUID sono stabili: reimportando un mazzo aggiornato Anki non crea duplicati.
+5. **Studio programmato**: ogni elemento (card, singola cloze o maschera) ha per ogni studente uno stato FSRS (`card_states`) e ogni risposta finisce nello storico (`review_log`). `lib/srs.ts` è condiviso: il browser lo usa per l'anteprima degli intervalli e per far tornare nella sessione le card in apprendimento, il server ricalcola tutto e salva. Le risposte vengono inviate a gruppi (ogni 8, dopo 20 s di pausa, a fine sessione o chiudendo la pagina) perché ogni scrittura riscrive i Parquet; ognuna ha un id, quindi un nuovo invio non la duplica. La giornata di studio cambia alle 4 del mattino nel fuso orario del browser. Il piano del giorno (`lib/study.ts`) sceglie le ripetizioni più a rischio entro il tempo disponibile e rimanda le altre; il ricordo effettivo degli ultimi 30 giorni corregge il ricordo usato per gli intervalli.
+6. **Mappe**: una riga per studente e per mazzo (`mind_maps`) con la mappa mentale (albero) e quella concettuale (concetti con livello + proposizioni). L'AI riceve le card numerate e restituisce le due strutture con richieste separate; con il modello locale usa formati a righe. Il server valida tutto: per la mappa mentale una radice e nessun ciclo, per quella concettuale proposizioni tra concetti esistenti, tutte con parola-legame, e livelli coerenti (un legame gerarchico scende sempre di livello, altrimenti diventa trasversale).
+7. **Export `.apkg`**: note type dedicati *Ankix Base* (Fronte/Retro/Extra) e *Ankix Cloze* (Testo/Extra), con stile chiaro/scuro. I GUID sono stabili: reimportando un mazzo aggiornato Anki non crea duplicati.
 
 ## Database su S3
 
@@ -110,7 +120,8 @@ Il database sta sul bucket, come nel progetto mailsender: ogni tabella è un fil
 
 ```
 <S3_PREFIX>/db/manifest.json                    versione corrente: quale file contiene ogni tabella
-<S3_PREFIX>/db/data/<tabella>-<versione>-<id>.parquet   file immutabili (users, materials, decks, cards)
+<S3_PREFIX>/db/data/<tabella>-<versione>-<id>.parquet   file immutabili (users, materials, decks, cards,
+                                                card_states, review_log, study_prefs, mind_maps)
 <S3_PREFIX>/db/lock.json                        lock di scrittura (solo se non usi Redis)
 <S3_PREFIX>/materials/<id>/<file>               materiali caricati
 ```
@@ -123,6 +134,7 @@ Il database sta sul bucket, come nel progetto mailsender: ogni tabella è un fil
 - I file sostituiti vengono cancellati dopo 10 minuti, così un'istanza che sta leggendo la versione precedente non trova file mancanti.
 - I Parquet **non vengono mai mandati al browser**: contengono i mazzi privati di tutti, quindi li legge solo il server.
 - Migrazione automatica: al primo avvio senza manifest vengono importati i Parquet della versione precedente (`<S3_PREFIX>/db/<tabella>.parquet`).
+- Le tabelle aggiunte dopo la creazione del bucket (es. quelle dello studio) mancano dal manifest finché non vengono scritte la prima volta: vengono considerate vuote.
 - Backup: copia la cartella `<S3_PREFIX>/db/` o attiva il versioning del bucket.
 
 ## Deploy su Vercel
@@ -147,7 +159,7 @@ Note:
 ```
 src/
   proxy.ts                 protezione delle route
-  app/(app)/               dashboard, materiali, genera, mazzi, studio
+  app/(app)/               dashboard, oggi (percorso), piano (calendario), materiali, genera, mazzi, studio, mappe
   app/api/                 API (auth, materiali, mazzi, card, export)
   lib/db.ts                DuckDB-WASM in memoria + tabelle Parquet versionate sul bucket (manifest)
   lib/duckdb-engine.ts     avvio di DuckDB-WASM (modalità blocking per Node)
@@ -158,5 +170,9 @@ src/
   lib/ai/common.ts         prompt, schemi JSON e pulizia delle card (provider cloud)
   lib/ai/cloud/            Gemini, Claude, OpenAI/OpenRouter
   lib/ai/local/            modello locale nel browser: motore LiteRT-LM, lettura materiali, generazione
+  lib/srs.ts               FSRS-5 e giorni di studio (condiviso client/server)
+  lib/study.ts             piano del giorno, adattamento, calendario, salvataggio delle risposte
+  lib/mindmap.ts           mappe mentali: validazione, mappa dai tag, disposizione radiale
+  lib/conceptmap.ts        mappe concettuali: validazione, livelli, disposizione gerarchica, esercizio
   lib/anki.ts              generatore .apkg (SQLite via sql.js) e CSV
 ```

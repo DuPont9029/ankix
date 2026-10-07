@@ -172,12 +172,31 @@ export class AbortedError extends Error {
 }
 
 /**
+ * Il modello piccolo a volte entra in un ciclo e ripete la stessa riga o lo stesso blocco fino a esaurire
+ * il contesto: in quel caso la risposta si interrompe e si tiene il testo scritto fin lì.
+ */
+export function isRepeating(text: string): boolean {
+  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+  if (lines.length >= 4) {
+    const last = lines.slice(-4);
+    if (last.every((l) => l === last[0])) return true;
+  }
+  if (text.length < 1500) return false;
+  const tail = text.slice(-250);
+  const before = text.slice(0, -250);
+  let count = 0;
+  for (let i = before.indexOf(tail); i !== -1 && count < 2; i = before.indexOf(tail, i + 1)) count++;
+  return count >= 2;
+}
+
+/**
  * Invia un prompt in una conversazione nuova (contesto pulito) e restituisce la risposta completa.
- * `onText` riceve il testo man mano che arriva.
+ * `onText` riceve il testo man mano che arriva. La risposta si ferma prima della fine del contesto
+ * se supera `maxChars` o se il modello si mette a ripetersi.
  */
 export function runPrompt(
   prompt: string,
-  { system, onText, signal }: { system?: string; onText?: (chunk: string) => void; signal?: AbortSignal } = {},
+  { system, onText, signal, maxChars }: { system?: string; onText?: (chunk: string) => void; signal?: AbortSignal; maxChars?: number } = {},
 ): Promise<string> {
   const run = async () => {
     if (signal?.aborted) throw new AbortedError();
@@ -186,8 +205,10 @@ export function runPrompt(
     const onAbort = () => conv.cancel();
     signal?.addEventListener("abort", onAbort);
     let out = "";
+    let checked = 0;
+    let cut = false;
     try {
-      for await (const msg of conv.sendMessageStreaming(prompt)) {
+      stream: for await (const msg of conv.sendMessageStreaming(prompt)) {
         const parts = typeof msg.content === "string" ? [{ type: "text", text: msg.content }] : (msg.content ?? []);
         for (const part of parts) {
           if (part.type === "text" && part.text) {
@@ -195,10 +216,16 @@ export function runPrompt(
             onText?.(part.text);
           }
         }
+        if ((maxChars && out.length > maxChars) || (out.length - checked > 120 && isRepeating(out))) {
+          cut = true;
+          conv.cancel();
+          break stream;
+        }
+        if (out.length - checked > 120) checked = out.length;
       }
     } catch (err) {
       if (signal?.aborted) throw new AbortedError();
-      throw err;
+      if (!cut) throw err;
     } finally {
       signal?.removeEventListener("abort", onAbort);
       await conv.delete().catch(() => {});
