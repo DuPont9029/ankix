@@ -4,9 +4,11 @@ const PDFJS = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/";
 const TESSERACT = "https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js";
 
 type PdfTextItem = { str?: string; transform: number[]; width: number };
+type PdfViewport = { width: number; height: number; scale: number; transform: number[] };
 type PdfPage = {
   getTextContent(): Promise<{ items: PdfTextItem[] }>;
-  getViewport(o: { scale: number }): { width: number; height: number; scale: number; transform: number[] };
+  getViewport(o: { scale: number }): PdfViewport;
+  render(o: { canvasContext: CanvasRenderingContext2D; viewport: PdfViewport }): { promise: Promise<void> };
 };
 type PdfJs = {
   GlobalWorkerOptions: { workerSrc: string };
@@ -23,7 +25,7 @@ declare global {
 export type LocalMaterial = { id: string; title: string; filename: string; mimeType: string };
 
 let pdfjs: PdfJs | null = null;
-async function loadPdfJs(): Promise<PdfJs> {
+export async function loadPdfJs(): Promise<PdfJs> {
   if (!pdfjs) {
     pdfjs = (await import(/* webpackIgnore: true */ /* turbopackIgnore: true */ `${PDFJS}pdf.min.mjs`)) as PdfJs;
     pdfjs.GlobalWorkerOptions.workerSrc = `${PDFJS}pdf.worker.min.mjs`;

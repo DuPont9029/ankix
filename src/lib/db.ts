@@ -27,7 +27,7 @@ import { LEGACY_SUBJECTS } from "./subjects";
 export type SqlParam = string | number | boolean | null | undefined;
 export type Row = Record<string, unknown>;
 
-const TABLES = ["users", "materials", "decks", "cards", "card_states", "review_log", "study_prefs", "mind_maps"] as const;
+const TABLES = ["users", "materials", "decks", "cards", "card_states", "review_log", "study_prefs", "mind_maps", "oral_exams"] as const;
 type Table = (typeof TABLES)[number];
 
 type Manifest = {
@@ -149,6 +149,16 @@ const SCHEMA = [
     model VARCHAR NOT NULL,
     created_at BIGINT NOT NULL,
     updated_at BIGINT NOT NULL
+  )`,
+  // Esami orali simulati: trascrizione, valutazione e card riprogrammate (in "data", JSON).
+  `CREATE TABLE oral_exams (
+    id VARCHAR NOT NULL,
+    user_id VARCHAR NOT NULL,
+    title VARCHAR NOT NULL,
+    grade INTEGER NOT NULL,
+    data VARCHAR NOT NULL,
+    model VARCHAR NOT NULL,
+    created_at BIGINT NOT NULL
   )`,
 ];
 

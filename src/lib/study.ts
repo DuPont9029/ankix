@@ -706,3 +706,52 @@ export async function deckProgress(userId: string, deckId: string, cards: Parame
   return out;
 }
 export type DeckProgress = Awaited<ReturnType<typeof deckProgress>>;
+
+// ---------- esami orali ----------
+
+export type ExamTarget = { key: string; cardId: string; deckId: string; level: "poor" | "partial" };
+
+/**
+ * Mette in ripasso gli elementi degli argomenti esposti male o in modo incompleto in un esame orale.
+ * Non è una ripetizione (non entra nello storico né nelle statistiche), ma lo stato FSRS cambia come dopo
+ * una risposta "Again" (esposto male: da ripassare subito) o "Hard" (incompleto: al più tardi domani).
+ * Una scadenza già più vicina non viene mai spostata in avanti.
+ */
+export async function rescheduleFromExam(userId: string, targets: ExamTarget[]): Promise<number> {
+  const byKey = new Map<string, ExamTarget>();
+  for (const t of targets) {
+    if (byKey.get(t.key)?.level !== "poor") byKey.set(t.key, t);
+  }
+  if (byKey.size === 0) return 0;
+  const prefs = await getPrefs(userId);
+  const now = Date.now();
+  const params: SchedulerParams = { retention: prefs.desiredRetention, maxIntervalDays: MAX_INTERVAL_DAYS };
+
+  return transaction(async (tx) => {
+    const keys = [...byKey.keys()];
+    const keyList = keys.map((_, i) => `$${i + 2}`).join(", ");
+    const states = new Map(
+      (await tx.query(`SELECT * FROM card_states WHERE user_id = $1 AND item_key IN (${keyList})`, [userId, ...keys])).map((r) => [str(r.item_key), toState(r)]),
+    );
+    for (const t of byKey.values()) {
+      const prev = states.get(t.key) ?? null;
+      const { next } = schedule(prev, t.level === "poor" ? 1 : 2, now, params);
+      const due = Math.min(next.due, t.level === "poor" ? now : now + DAY, prev?.due ?? Infinity);
+      const values = [next.state, next.step, due, next.stability, next.difficulty, prev?.reps ?? 0, prev?.lapses ?? 0, now, now];
+      if (prev) {
+        await tx.exec(
+          `UPDATE card_states SET state = $1, step = $2, due = $3, stability = $4, difficulty = $5, reps = $6, lapses = $7, last_review = $8, updated_at = $9
+           WHERE user_id = $10 AND item_key = $11`,
+          [...values, userId, t.key],
+        );
+      } else {
+        await tx.exec(
+          `INSERT INTO card_states (state, step, due, stability, difficulty, reps, lapses, last_review, updated_at, user_id, item_key, card_id, deck_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+          [...values, userId, t.key, t.cardId, t.deckId],
+        );
+      }
+    }
+    return byKey.size;
+  });
+}

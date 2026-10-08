@@ -1,8 +1,8 @@
 import "server-only";
-import { ApiError, FileState, GoogleGenAI, type Part } from "@google/genai";
+import { ApiError, FileState, GoogleGenAI, ThinkingLevel, type Part } from "@google/genai";
 import { isTextMime } from "../../files";
 import { AiError, decodeText, materialHeader, withoutAdditionalProperties, type SourceFile } from "../common";
-import { httpErrorMessage, isNetworkError, type CloudBackend } from "./backend";
+import { httpErrorMessage, isNetworkError, type AudioRequest, type CloudBackend } from "./backend";
 
 const INLINE_FILE_LIMIT = 8 * 1024 * 1024; // oltre questa soglia usa la Files API
 const INLINE_TOTAL_LIMIT = 14 * 1024 * 1024; // la richiesta inline non può superare ~20 MB (base64)
@@ -32,11 +32,11 @@ async function waitUntilActive(ai: GoogleGenAI, name: string): Promise<void> {
   }
 }
 
-async function buildParts(ai: GoogleGenAI, sources: SourceFile[], uploaded: string[]): Promise<Part[]> {
+async function buildParts(ai: GoogleGenAI, sources: SourceFile[], uploaded: string[], headers = true): Promise<Part[]> {
   const parts: Part[] = [];
   let inlineTotal = 0;
   for (const src of sources) {
-    parts.push({ text: materialHeader(src) });
+    if (headers) parts.push({ text: materialHeader(src) });
     if (isTextMime(src.mimeType)) {
       parts.push({ text: decodeText(src.bytes) });
       continue;
@@ -58,6 +58,15 @@ async function buildParts(ai: GoogleGenAI, sources: SourceFile[], uploaded: stri
     parts.push({ fileData: { fileUri: file.uri, mimeType: file.mimeType ?? src.mimeType } });
   }
   return parts;
+}
+
+function transcriptionPrompt(req: AudioRequest): string {
+  const lang = req.language === "it" ? "Italian" : "English";
+  return `This is the recording of a university student's oral exam (spoken mostly in ${lang}). Transcribe it verbatim.
+- Output only the transcript as plain paragraphs: no timestamps, speaker labels, headings or comments.
+- Leave out filler sounds (ehm, uhm) and false starts, but NEVER correct what the student says: wrong statements must be transcribed as spoken.
+- Write technical and medical terms correctly. Context of the exam: ${req.hint}
+- If the recording contains no speech, output nothing.`;
 }
 
 export const gemini: CloudBackend = {
@@ -84,6 +93,8 @@ export const gemini: CloudBackend = {
           responseMimeType: "application/json",
           responseJsonSchema: withoutAdditionalProperties(req.schema),
           temperature: req.temperature,
+          // Il livello di ragionamento esiste solo dai modelli Gemini 3.
+          ...(req.effort && /^gemini-3/.test(model) ? { thinkingConfig: { thinkingLevel: ThinkingLevel.LOW } } : {}),
         },
       });
       if (response.promptFeedback?.blockReason) {
@@ -99,6 +110,30 @@ export const gemini: CloudBackend = {
       const text = response.text;
       if (!text) throw new AiError("Gemini returned an empty response.");
       return text;
+    } finally {
+      for (const name of uploaded) ai.files.delete({ name }).catch(() => undefined);
+    }
+  },
+
+  async transcribe(apiKey, model, req) {
+    const ai = createAi(apiKey);
+    const uploaded: string[] = [];
+    try {
+      const parts = await buildParts(ai, [req.audio], uploaded, false);
+      parts.push({ text: transcriptionPrompt(req) });
+      const response = await ai.models.generateContent({
+        model,
+        contents: [{ role: "user", parts }],
+        config: { temperature: 0 },
+      });
+      if (response.promptFeedback?.blockReason) {
+        throw new AiError(`Gemini blocked the recording (${response.promptFeedback.blockReason}).`);
+      }
+      const reason = response.candidates?.[0]?.finishReason;
+      if (reason === "SAFETY" || reason === "PROHIBITED_CONTENT" || reason === "RECITATION") {
+        throw new AiError(`Gemini stopped the transcription (${reason}). Try another transcription engine.`);
+      }
+      return response.text?.trim() ?? "";
     } finally {
       for (const name of uploaded) ai.files.delete({ name }).catch(() => undefined);
     }

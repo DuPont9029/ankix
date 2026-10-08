@@ -2,6 +2,7 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import { exec, query, refresh, transaction, type Row } from "./db";
 import type { ConceptMapData } from "./conceptmap";
+import type { OralExam, OralExamSummary } from "./exam-types";
 import type { MindMap, MindMapData } from "./mindmap";
 import type { Card, CardType, Choice, Deck, DeckSource, DeckStatus, GenerationOptions, Material, Occlusion } from "./types";
 
@@ -428,4 +429,51 @@ export async function saveMindMap(userId: string, deckId: string, map: MindMapIn
 
 export async function deleteMindMap(userId: string, deckId: string): Promise<void> {
   await exec(`DELETE FROM mind_maps WHERE user_id = $1 AND deck_id = $2`, [userId, deckId]);
+}
+
+// ---------- Esami orali ----------
+
+// Ogni esame è privato: lo vede solo lo studente che l'ha sostenuto.
+type OralExamData = Omit<OralExam, "id" | "title" | "model" | "createdAt">;
+
+function toOralExam(r: Row): OralExam | null {
+  const data = parseJson<(OralExamData & { question?: string; transcript?: string }) | null>(r.data, null);
+  if (!data?.result) return null;
+  // Esami della prima versione: una sola risposta libera, senza giudizio per domanda.
+  const answers = data.answers ?? [{ question: data.question || "Free presentation", transcript: data.transcript ?? "", durationSec: data.durationSec }];
+  return {
+    ...data,
+    mode: data.mode ?? "custom",
+    answers,
+    result: { ...data.result, answers: data.result.answers ?? [] },
+    id: str(r.id),
+    title: str(r.title),
+    model: str(r.model),
+    createdAt: num(r.created_at),
+  };
+}
+
+export async function listOralExams(userId: string): Promise<OralExamSummary[]> {
+  const rows = await query(`SELECT * FROM oral_exams WHERE user_id = $1 ORDER BY created_at DESC`, [userId]);
+  return rows
+    .map(toOralExam)
+    .filter((e): e is OralExam => e !== null)
+    .map((e) => ({ id: e.id, title: e.title, createdAt: e.createdAt, durationSec: e.durationSec, grade: e.result.grade, honors: e.result.honors }));
+}
+
+export async function getOralExam(userId: string, id: string): Promise<OralExam | null> {
+  const row = await findOne(`SELECT * FROM oral_exams WHERE id = $1 AND user_id = $2`, [id, userId]);
+  return row ? toOralExam(row) : null;
+}
+
+export async function insertOralExam(userId: string, exam: OralExam): Promise<void> {
+  const { id, title, model, createdAt, ...data } = exam;
+  await exec(
+    `INSERT INTO oral_exams (id, user_id, title, grade, data, model, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    [id, userId, title, exam.result.grade, JSON.stringify(data), model, createdAt],
+  );
+}
+
+export async function deleteOralExam(userId: string, id: string): Promise<void> {
+  await exec(`DELETE FROM oral_exams WHERE id = $1 AND user_id = $2`, [id, userId]);
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarDays, FolderOpen, GalleryVerticalEnd, KeyRound, LayoutDashboard, LogOut, Route, Settings, Sparkles } from "lucide-react";
+import { CalendarDays, FolderOpen, GalleryVerticalEnd, KeyRound, LayoutDashboard, LogOut, Mic, Route, Settings, Sparkles } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState, type ReactNode } from "react";
@@ -16,6 +16,7 @@ const NAV = [
   { href: "/materials", label: "Materials", short: "Materials", icon: FolderOpen },
   { href: "/generate", label: "Generate flashcards", short: "Generate", icon: Sparkles },
   { href: "/decks", label: "Decks", short: "Decks", icon: GalleryVerticalEnd },
+  { href: "/exam", label: "Oral exam", short: "Exam", icon: Mic },
 ];
 
 function isActive(pathname: string, href: string) {
@@ -174,7 +175,7 @@ export function AppShell({
 
       {/* Tab bar mobile */}
       <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-card/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-md lg:hidden">
-        <div className="mx-auto grid max-w-lg grid-cols-6">
+        <div className="mx-auto grid max-w-lg grid-cols-7">
           {NAV.map(({ href, short, icon: Icon }) => {
             const active = isActive(pathname, href);
             return (

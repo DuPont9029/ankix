@@ -1,5 +1,5 @@
 // Generazione di flashcard e image occlusion con il modello locale, interamente nel browser.
-// Un modello piccolo con contesto di 8192 token: il materiale è diviso in blocchi, ognuno elaborato
+// Un modello piccolo: il materiale è diviso in blocchi da 8000 caratteri (stanno anche nel contesto minimo), ognuno elaborato
 // in una conversazione nuova, e l'output usa un formato a righe ("Q:/A:/C:") più robusto del JSON.
 
 import { OCCLUSION_IMAGE_TYPES } from "../../files";

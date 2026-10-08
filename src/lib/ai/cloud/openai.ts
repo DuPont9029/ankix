@@ -1,12 +1,15 @@
 import "server-only";
-import OpenAI from "openai";
+import OpenAI, { toFile } from "openai";
 import type { ChatCompletionContentPart } from "openai/resources/chat/completions";
 import { isTextMime } from "../../files";
 import { AiError, decodeText, materialHeader } from "../common";
-import { httpErrorMessage, isNetworkError, type CloudBackend, type JsonRequest } from "./backend";
+import { httpErrorMessage, isNetworkError, type AudioRequest, type CloudBackend, type JsonRequest } from "./backend";
 
 const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
 const OPENROUTER_URL = "https://openrouter.ai/api/v1";
+// Modelli di ragionamento di OpenAI, che accettano reasoning_effort.
+const REASONING_MODELS = /^(gpt-5|o\d)/;
+
 
 function toParts(label: string, sources: JsonRequest["sources"]): ChatCompletionContentPart[] {
   const parts: ChatCompletionContentPart[] = [];
@@ -62,6 +65,7 @@ function openAiCompatible(label: string, keyHint: string, baseURL?: string): Clo
           { role: "user", content: [...toParts(label, req.sources), { type: "text", text: req.prompt }] },
         ],
         response_format: { type: "json_schema", json_schema: { name: req.schemaName, schema: req.schema, strict: true } },
+        ...(req.effort && !baseURL && REASONING_MODELS.test(model) ? { reasoning_effort: req.effort } : {}),
       });
       const choice = response.choices[0];
       if (choice?.message.refusal) throw new AiError(`${label} declined to process this material: ${choice.message.refusal}`);
@@ -73,6 +77,24 @@ function openAiCompatible(label: string, keyHint: string, baseURL?: string): Clo
       if (!text?.trim()) throw new AiError(`${label} returned an empty response.`);
       return text;
     },
+
+    ...(baseURL
+      ? {}
+      : {
+          async transcribe(apiKey: string, model: string, req: AudioRequest) {
+            const ext = req.audio.filename.match(/\.[a-z0-9]+$/i)?.[0] ?? ".webm";
+            const result = await client(apiKey).audio.transcriptions.create({
+              model,
+              file: await toFile(req.audio.bytes, `exam${ext}`, { type: req.audio.mimeType }),
+              language: req.language,
+              // Il prompt guida la grafia dei termini tecnici; deve essere nella lingua dell'audio.
+              prompt: req.hint.slice(0, 800),
+              chunking_strategy: "auto",
+              response_format: "json",
+            });
+            return result.text.trim();
+          },
+        }),
 
     friendlyError(err, model) {
       if (err instanceof OpenAI.APIConnectionError || isNetworkError(err)) return new Error(`Could not reach ${label}: check the server connection.`);

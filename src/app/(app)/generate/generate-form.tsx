@@ -1,11 +1,13 @@
 "use client";
 
-import { ArrowRight, Check, CheckCircle2, CircleHelp, FolderOpen, Hourglass, ImageIcon, Layers, ListChecks, NotebookPen, Search, SquareStack, Upload, X } from "lucide-react";
+import { ArrowRight, CheckCircle2, CircleHelp, FolderOpen, Hourglass, ImageIcon, Layers, ListChecks, NotebookPen, SquareStack, Upload, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { useMemo, useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import { EnginePicker } from "@/components/ai/engine-picker";
+import { Section, Segmented } from "@/components/form-section";
+import { MaterialPicker } from "@/components/materials/material-picker";
 import { useLocalGeneration } from "@/components/ai/local-generation";
 import { Button, EmptyState, Input, Label, PageHeader, Select, Textarea, buttonClass, cn } from "@/components/ui";
 import { PROVIDER_INFO, providerReady, type AiProvider, type AiStatus } from "@/lib/ai/providers";
@@ -15,61 +17,6 @@ import { SUBJECTS } from "@/lib/subjects";
 import { subjectTone } from "@/lib/subjects-style";
 import type { GenerationOptions, Material } from "@/lib/types";
 import { useApiErrorToast } from "@/lib/use-api-error";
-
-function Segmented<T extends string>({
-  value,
-  onChange,
-  options,
-  name,
-}: {
-  value: T;
-  onChange: (v: T) => void;
-  options: { value: T; label: string; hint?: string; icon?: ReactNode }[];
-  name: string;
-}) {
-  return (
-    <div role="radiogroup" aria-label={name} className="grid gap-1 rounded-md bg-muted p-1" style={{ gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` }}>
-      {options.map((o) => {
-        const active = o.value === value;
-        return (
-          <button
-            key={o.value}
-            type="button"
-            role="radio"
-            aria-checked={active}
-            onClick={() => onChange(o.value)}
-            className={cn(
-              "cursor-pointer rounded-[5px] px-2.5 py-2 text-center transition",
-              active ? "bg-card shadow-card" : "hover:bg-muted-strong",
-            )}
-          >
-            <span className={cn("flex items-center justify-center gap-1.5 text-[13px] font-semibold", active ? "text-heading" : "text-ink-muted")}>
-              {o.icon}
-              {o.label}
-            </span>
-            {o.hint && <span className={cn("mt-0.5 hidden text-[11px] sm:block", active ? "text-accent" : "text-ink-faint")}>{o.hint}</span>}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-function Section({ step, title, aside, description, children }: { step: number; title: string; aside?: ReactNode; description?: string; children: ReactNode }) {
-  return (
-    <section className="rounded-lg border border-line bg-sunken p-5 sm:p-6">
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="flex items-center gap-3 font-serif text-[20px] leading-7 font-semibold text-heading">
-          <span className="grid size-6 place-items-center rounded-[4px] bg-primary font-sans text-xs font-bold text-on-primary">{step}</span>
-          {title}
-        </h2>
-        {aside}
-      </div>
-      {description && <p className="mt-2 text-[13px] text-ink-muted">{description}</p>}
-      <div className="mt-4">{children}</div>
-    </section>
-  );
-}
 
 const PRESETS = [10, 20, 40, 60];
 
@@ -85,7 +32,6 @@ export function GenerateForm({
   const router = useRouter();
   const showError = useApiErrorToast();
   const [selected, setSelected] = useState<string[]>(initialSelection);
-  const [query, setQuery] = useState("");
   const [title, setTitle] = useState("");
   const [subject, setSubject] = useState<string>(materials.find((m) => m.id === initialSelection[0])?.subject ?? SUBJECTS[0]);
   const [subjectTouched, setSubjectTouched] = useState(false);
@@ -99,11 +45,6 @@ export function GenerateForm({
   const localGeneration = useLocalGeneration();
 
   const byId = useMemo(() => new Map(materials.map((m) => [m.id, m])), [materials]);
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return materials;
-    return materials.filter((m) => m.title.toLowerCase().includes(q) || m.subject.toLowerCase().includes(q) || m.filename.toLowerCase().includes(q));
-  }, [materials, query]);
 
   function toggle(id: string) {
     const next = selected.includes(id) ? selected.filter((s) => s !== id) : [...selected, id];
@@ -196,41 +137,7 @@ export function GenerateForm({
             description="Up to 10 files. The more focused the material, the more precise the cards."
             aside={<span className="rounded-full bg-primary-soft px-2.5 py-0.5 text-[11px] font-semibold text-accent">{selected.length} selected (max 10)</span>}
           >
-            <div className="relative mb-3">
-              <Search className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-ink-faint" />
-              <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search uploaded notes, handouts and slides…" className="pl-10" aria-label="Search materials" />
-            </div>
-            <ul className="max-h-[300px] space-y-2 overflow-y-auto pr-1">
-              {filtered.map((m) => {
-                const active = selected.includes(m.id);
-                return (
-                  <li key={m.id}>
-                    <button
-                      type="button"
-                      onClick={() => toggle(m.id)}
-                      aria-pressed={active}
-                      className={cn(
-                        "flex w-full cursor-pointer items-center gap-3 rounded-md border bg-card px-3.5 py-3 text-left transition",
-                        active ? "border-primary" : "border-line hover:border-line-strong",
-                      )}
-                    >
-                      <span className={cn("grid size-[18px] shrink-0 place-items-center rounded-[4px] border", active ? "border-heading bg-heading text-bg" : "border-line-strong")}>
-                        {active && <Check className="size-3.5" strokeWidth={3} />}
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm font-semibold text-ink">{m.title}</span>
-                        <span className="block truncate text-[11px] font-medium text-ink-muted">
-                          {m.subject} · {m.filename}
-                        </span>
-                      </span>
-                      <span className="rounded-[4px] bg-muted px-2 py-0.5 text-[11px] font-semibold text-ink-muted tabular-nums">{formatBytes(m.sizeBytes)}</span>
-                      <CheckCircle2 className={cn("size-[18px] shrink-0", active ? "text-heading" : "text-transparent")} />
-                    </button>
-                  </li>
-                );
-              })}
-              {filtered.length === 0 && <li className="py-6 text-center text-sm text-ink-muted">No results.</li>}
-            </ul>
+            <MaterialPicker materials={materials} selected={selected} onToggle={toggle} />
           </Section>
 
           <Section step={2} title="Flashcard type">

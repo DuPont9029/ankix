@@ -11,6 +11,8 @@ type ImageType = (typeof IMAGE_TYPES)[number];
 
 // Modelli che accettano il fallback lato server in caso di rifiuto dei classificatori di sicurezza.
 const FALLBACK_MODELS = new Set(["claude-fable-5-1", "claude-opus-5-5", "claude-opus-5", "claude-sonnet-5-5"]);
+// Modelli che accettano il livello di impegno (effort).
+const EFFORT_MODELS = /^claude-(fable|opus|sonnet)-5|^claude-opus-4-[5-9]|^claude-sonnet-4-6/;
 
 function client(apiKey: string): Anthropic {
   // I tentativi li gestisce generate.ts, con lo stesso criterio per tutti i provider.
@@ -61,7 +63,10 @@ export const anthropic: CloudBackend = {
       max_tokens: 64000,
       ...(req.system ? { system: req.system } : {}),
       messages: [{ role: "user", content }],
-      output_config: { format: { type: "json_schema", schema: req.schema } },
+      output_config: {
+        format: { type: "json_schema", schema: req.schema },
+        ...(req.effort && EFFORT_MODELS.test(model) ? { effort: req.effort } : {}),
+      },
       ...(FALLBACK_MODELS.has(model) ? { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" as const } : {}),
     });
     const message = await stream.finalMessage();

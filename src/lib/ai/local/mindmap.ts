@@ -3,18 +3,21 @@
 import { normalizeConceptMap, parseConceptOutline, type ConceptMapData } from "../../conceptmap";
 import { cardsForPrompt, normalizeMap, parseOutlineMap, type MindMapData } from "../../mindmap";
 import type { Card, Deck } from "../../types";
-import { runPrompt } from "./engine";
+import { contextChars, ensureEngine, runPrompt } from "./engine";
 
 type Options = { onText?: (chunk: string) => void; signal?: AbortSignal };
 
 const SYSTEM = "You are an expert medical educator who designs clear mind maps and concept maps for students.";
 
-// Il contesto del modello è di 8192 token: si usano le prime card, accorciate.
-const promptCards = (cards: Card[]) => cardsForPrompt(cards, 9000, 160);
+// Le card stanno nel contesto del motore (8k–32k token, vedi engine.ts) lasciando spazio alla risposta.
+async function promptCards(cards: Card[]) {
+  await ensureEngine();
+  return cardsForPrompt(cards, Math.min(60_000, contextChars(3500)), 200);
+}
 const language = (deck: Pick<Deck, "options">) => (deck.options.language === "it" ? "Italian" : "English");
 
 export async function generateMindMapLocally(deck: Pick<Deck, "title" | "subject" | "options">, cards: Card[], { onText, signal }: Options = {}): Promise<MindMapData> {
-  const { text, ids } = promptCards(cards);
+  const { text, ids } = await promptCards(cards);
   const prompt = [
     `Build a mind map of the flashcard deck "${deck.title}" (subject: ${deck.subject}). Write in ${language(deck)}.`,
     "Output ONLY an indented outline, two spaces per level:",
@@ -37,7 +40,7 @@ export async function generateConceptMapLocally(
   cards: Card[],
   { onText, signal }: Options = {},
 ): Promise<ConceptMapData> {
-  const { text, ids } = promptCards(cards);
+  const { text, ids } = await promptCards(cards);
   const prompt = [
     `Build a CONCEPT MAP (Novak) of the flashcard deck "${deck.title}" (subject: ${deck.subject}). Write in ${language(deck)}.`,
     "A concept map is made of propositions: Concept -> linking words -> Concept, each one a true sentence.",

@@ -1,6 +1,14 @@
 import "server-only";
 import type { JsonSchema, SourceFile } from "../common";
 
+export type AudioRequest = {
+  audio: SourceFile;
+  /** Lingua parlata (ISO-639-1) */
+  language: "it" | "en";
+  /** Termini attesi (titoli dei materiali, argomento), per riconoscere meglio la terminologia */
+  hint: string;
+};
+
 export type JsonRequest = {
   system?: string;
   /** Materiali allegati (testo, PDF o immagini), nell'ordine in cui vanno letti */
@@ -9,12 +17,16 @@ export type JsonRequest = {
   schema: JsonSchema;
   schemaName: string;
   temperature: number;
+  /** "low": poco ragionamento, per richieste semplici che devono essere veloci (solo sui modelli che lo supportano) */
+  effort?: "low";
 };
 
 /** Un provider cloud: verifica la chiave e restituisce il testo JSON prodotto dal modello. */
 export interface CloudBackend {
   verify(apiKey: string, model: string): Promise<void>;
   generateJson(apiKey: string, model: string, req: JsonRequest): Promise<string>;
+  /** Trascrizione di una registrazione audio (solo i provider che accettano audio) */
+  transcribe?(apiKey: string, model: string, req: AudioRequest): Promise<string>;
   /** Converte gli errori dell'SDK in messaggi comprensibili per lo studente */
   friendlyError(err: unknown, model: string): Error;
   isRetryable(err: unknown): boolean;

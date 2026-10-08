@@ -19,7 +19,7 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  // L'upload diretto è escluso: il proxy bufferizza (e tronca oltre 10 MB) il body delle richieste.
-  // La route verifica comunque la sessione autonomamente, come tutte le API.
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|icon.svg|logo.svg|robots.txt|api/materials/upload).*)"],
+  // Gli upload (materiali e registrazioni degli esami) sono esclusi: il proxy bufferizza (e tronca oltre 10 MB) il body delle richieste.
+  // Le route verificano comunque la sessione autonomamente, come tutte le API.
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|icon.svg|logo.svg|robots.txt|api/materials/upload|api/exams/transcribe).*)"],
 };

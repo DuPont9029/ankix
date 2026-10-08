@@ -2,7 +2,7 @@ import "server-only";
 import type { CardInput } from "../repo";
 import { sanitizeField, sanitizeTags } from "../sanitize";
 import type { GenerationOptions } from "../types";
-import type { CloudBackend, JsonRequest } from "./cloud/backend";
+import type { AudioRequest, CloudBackend, JsonRequest } from "./cloud/backend";
 import { anthropic } from "./cloud/anthropic";
 import { gemini } from "./cloud/gemini";
 import { openai, openrouter } from "./cloud/openai";
@@ -63,17 +63,24 @@ async function acquire(apiKey: string): Promise<() => void> {
 }
 
 /** Chiede JSON al provider (fino a 3 tentativi per errori transitori o formato non valido) e lo valida con `parse`. */
-async function requestJson<T>(cred: AiCredentials, req: JsonRequest, parse: (json: unknown) => T): Promise<T> {
+function requestJson<T>(cred: AiCredentials, req: JsonRequest, parse: (json: unknown) => T): Promise<T> {
+  return withRetries(cred, async (backend) => {
+    const text = await backend.generateJson(cred.apiKey, cred.model, req);
+    try {
+      return parse(extractJson(text));
+    } catch {
+      throw new InvalidFormatError(`${PROVIDER_INFO[cred.provider].label} returned an invalid format.`);
+    }
+  });
+}
+
+/** Fino a 3 tentativi per errori transitori o formato non valido; gli altri errori diventano messaggi comprensibili. */
+async function withRetries<T>(cred: AiCredentials, run: (backend: CloudBackend) => Promise<T>): Promise<T> {
   const backend = BACKENDS[cred.provider];
   let lastError: unknown;
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      const text = await backend.generateJson(cred.apiKey, cred.model, req);
-      try {
-        return parse(extractJson(text));
-      } catch {
-        throw new InvalidFormatError(`${PROVIDER_INFO[cred.provider].label} returned an invalid format.`);
-      }
+      return await run(backend);
     } catch (err) {
       lastError = err;
       const retry = err instanceof InvalidFormatError || (!(err instanceof AiError) && backend.isRetryable(err));
@@ -89,6 +96,18 @@ export async function generateStructured<T>(cred: AiCredentials, req: JsonReques
   const release = await acquire(cred.apiKey);
   try {
     return await requestJson(cred, req, parse);
+  } finally {
+    release();
+  }
+}
+
+/** Trascrive una registrazione audio con un provider che accetta audio (Gemini, OpenAI). */
+export async function transcribeAudio(cred: AiCredentials, req: AudioRequest): Promise<string> {
+  const backend = BACKENDS[cred.provider];
+  if (!backend.transcribe) throw new AiError(`${PROVIDER_INFO[cred.provider].label} cannot transcribe audio: choose Gemini or OpenAI.`);
+  const release = await acquire(cred.apiKey);
+  try {
+    return await withRetries(cred, (b) => b.transcribe!(cred.apiKey, cred.model, req));
   } finally {
     release();
   }
