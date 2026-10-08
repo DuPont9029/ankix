@@ -7,11 +7,22 @@ import { AI_PROVIDERS, PROVIDER_INFO, providerModelLabel, providerReady, type Ai
 import { useWebGpuProblem } from "./local-model";
 
 /** Scelta del motore AI per una generazione: il modello locale oppure un provider cloud con la chiave dello studente. */
-export function EnginePicker({ status, value, onChange }: { status: AiStatus; value: AiProvider; onChange: (p: AiProvider) => void }) {
+export function EnginePicker<P extends AiProvider = AiProvider>({
+  status,
+  value,
+  onChange,
+  providers = AI_PROVIDERS as readonly P[],
+}: {
+  status: AiStatus;
+  value: P;
+  onChange: (p: P) => void;
+  /** Motori selezionabili (predefinito: tutti) */
+  providers?: readonly P[];
+}) {
   const gpuProblem = useWebGpuProblem();
   return (
     <div role="radiogroup" aria-label="AI engine" className="space-y-1.5">
-      {AI_PROVIDERS.map((p) => {
+      {providers.map((p) => {
         const ready = providerReady(status, p);
         const active = value === p;
         const warning = p === "local" ? gpuProblem : null;

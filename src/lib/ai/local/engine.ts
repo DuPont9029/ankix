@@ -4,8 +4,36 @@
 
 const LITERT_URL = "https://cdn.jsdelivr.net/npm/@litert-lm/core@0.17.1/+esm";
 const MODEL_URL = "https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/main/gemma-4-E4B-it-web.litertlm";
-/** Contesto del modello (prompt + risposta) */
-export const MAX_TOKENS = 8192;
+/**
+ * Contesto del modello (prompt + risposta). Gemma 4 E4B arriva a 32k token, ma la cache sulla GPU cresce con il
+ * contesto: si prova il più grande e, se la GPU non ce la fa, si ripiega sui successivi.
+ */
+const CONTEXT_STEPS = [32768, 16384, 8192];
+const CONTEXT_KEY = "ankix-local-context";
+/** Caratteri per token, stima prudente per testi medici in italiano e inglese */
+const CHARS_PER_TOKEN = 3;
+let contextTokens = 8192;
+
+/** Token di contesto del motore caricato (prima del caricamento: il minimo garantito). */
+export function getContextTokens(): number {
+  return contextTokens;
+}
+
+/** Caratteri di prompt che stanno nel contesto lasciando `reserveTokens` per istruzioni e risposta. */
+export function contextChars(reserveTokens: number): number {
+  return Math.max(2000, (contextTokens - reserveTokens) * CHARS_PER_TOKEN);
+}
+
+/** Contesti da provare: si parte dall'ultimo che ha funzionato su questo dispositivo. */
+function contextSteps(): number[] {
+  let saved = 0;
+  try {
+    saved = Number(localStorage.getItem(CONTEXT_KEY)) || 0;
+  } catch {
+    /* storage non disponibile */
+  }
+  return saved ? CONTEXT_STEPS.filter((n) => n <= saved) : CONTEXT_STEPS;
+}
 
 type Message = { role: string; content?: string | { type: string; text?: string }[] };
 type Conversation = {
@@ -138,7 +166,23 @@ export function ensureEngine(): Promise<Engine> {
       setStatus({ state: "initializing" });
       filterRuntimeLogs();
       const { Engine } = (await import(/* webpackIgnore: true */ /* turbopackIgnore: true */ LITERT_URL)) as LiteRt;
-      engine = await Engine.create({ model: file, mainExecutorSettings: { maxNumTokens: MAX_TOKENS } });
+      let lastError: unknown;
+      for (const tokens of contextSteps()) {
+        try {
+          engine = await Engine.create({ model: file, mainExecutorSettings: { maxNumTokens: tokens } });
+          contextTokens = tokens;
+          try {
+            localStorage.setItem(CONTEXT_KEY, String(tokens));
+          } catch {
+            /* storage non disponibile */
+          }
+          break;
+        } catch (err) {
+          lastError = err;
+          console.warn(`[local-ai] context of ${tokens} tokens not available on this GPU`, err);
+        }
+      }
+      if (!engine) throw lastError;
       setStatus({ state: "ready" });
       return engine;
     } catch (err) {

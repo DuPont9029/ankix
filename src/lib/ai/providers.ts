@@ -71,3 +71,9 @@ export function providerReady(status: AiStatus, provider: AiProvider): boolean {
 export function providerModelLabel(status: AiStatus, provider: AiProvider): string {
   return provider === "local" ? LOCAL_MODEL_LABEL : status.cloud[provider].model;
 }
+
+/** Provider cloud che sanno trascrivere l'audio (per la modalità esame) */
+export const TRANSCRIBE_PROVIDERS = ["gemini", "openai"] as const satisfies readonly CloudProvider[];
+export type TranscribeProvider = (typeof TRANSCRIBE_PROVIDERS)[number];
+/** OpenAI trascrive con un modello dedicato, indipendente da quello scelto per le generazioni */
+export const OPENAI_TRANSCRIBE_MODEL = "gpt-4o-transcribe";

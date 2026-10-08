@@ -42,31 +42,30 @@ export function materialHeader(src: Pick<SourceFile, "title" | "filename">): str
 
 // Gli schemi sono scritti nella forma "strict" (additionalProperties: false, tutti i campi required)
 // richiesta da Claude e OpenAI; per Gemini additionalProperties viene rimosso.
+export const CARD_SCHEMA: JsonSchema = {
+  type: "object",
+  properties: {
+    type: { type: "string", enum: ["basic", "cloze", "mcq"] },
+    front: { type: "string", description: "Question (basic, mcq) or text with {{c1::...}} deletions (cloze)" },
+    back: { type: "string", description: "Answer (basic). Empty string for cloze and mcq cards." },
+    extra: {
+      type: "string",
+      description: "Context, clinical correlation or mnemonic; for mcq a one-sentence explanation of the correct answer. May be empty.",
+    },
+    tags: { type: "array", items: { type: "string" }, description: "1-3 topic tags" },
+    choices: { type: "array", items: { type: "string" }, description: "mcq only: exactly 4 options. Empty array for other types." },
+    answer_index: { type: "integer", description: "mcq only: 0-based index of the correct option in choices. -1 for other types." },
+  },
+  required: ["type", "front", "back", "extra", "tags", "choices", "answer_index"],
+  additionalProperties: false,
+};
+
 export const RESPONSE_SCHEMA: JsonSchema = {
   type: "object",
   properties: {
     title: { type: "string", description: "Short, specific title for the deck" },
     description: { type: "string", description: "One or two sentences describing the topics covered" },
-    cards: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: {
-          type: { type: "string", enum: ["basic", "cloze", "mcq"] },
-          front: { type: "string", description: "Question (basic, mcq) or text with {{c1::...}} deletions (cloze)" },
-          back: { type: "string", description: "Answer (basic). Empty string for cloze and mcq cards." },
-          extra: {
-            type: "string",
-            description: "Context, clinical correlation or mnemonic; for mcq a one-sentence explanation of the correct answer. May be empty.",
-          },
-          tags: { type: "array", items: { type: "string" }, description: "1-3 topic tags" },
-          choices: { type: "array", items: { type: "string" }, description: "mcq only: exactly 4 options. Empty array for other types." },
-          answer_index: { type: "integer", description: "mcq only: 0-based index of the correct option in choices. -1 for other types." },
-        },
-        required: ["type", "front", "back", "extra", "tags", "choices", "answer_index"],
-        additionalProperties: false,
-      },
-    },
+    cards: { type: "array", items: CARD_SCHEMA },
   },
   required: ["title", "description", "cards"],
   additionalProperties: false,
