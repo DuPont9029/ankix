@@ -34,8 +34,8 @@ export const POST = handle(async (req: Request) => {
   if (local && !body.cards) throw new HttpError(400, "The local AI generates the cards in your browser: no cards were received.");
 
   const materialIds = [...new Set(body.materialIds)];
-  const materials = await getMaterialsByIds(materialIds);
-  if (materials.length !== materialIds.length) throw new HttpError(400, "Some of the selected materials no longer exist.");
+  const materials = await getMaterialsByIds(materialIds, user.id);
+  if (materials.length !== materialIds.length) throw new HttpError(400, "Some of the selected materials no longer exist or are private.");
 
   const cards = local ? await cleanLocalCards(body.cards!, [], materialIds) : [];
   if (local && cards.length === 0) throw new HttpError(400, "None of the generated cards is valid: try again or use another AI engine.");

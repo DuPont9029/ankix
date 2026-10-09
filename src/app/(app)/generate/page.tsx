@@ -10,8 +10,8 @@ export const dynamic = "force-dynamic";
 export default async function GeneratePage({ searchParams }: PageProps<"/generate">) {
   const params = await searchParams;
   const raw = Array.isArray(params.materials) ? params.materials.join(",") : (params.materials ?? "");
-  const [user, materials] = await Promise.all([getCurrentUser(), listMaterials()]);
-  const aiStatus = await getAiStatus(user!);
+  const user = (await getCurrentUser())!;
+  const [materials, aiStatus] = await Promise.all([listMaterials(user.id), getAiStatus(user)]);
   const known = new Set(materials.map((m) => m.id));
   const initialSelection = raw
     .split(",")

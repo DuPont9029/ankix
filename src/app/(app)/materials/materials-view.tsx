@@ -1,13 +1,13 @@
 "use client";
 
-import { Check, CheckCircle2, Eye, FolderOpen, Plus, RefreshCw, Search, ShieldCheck, Sparkles, Trash2, UserRound } from "lucide-react";
+import { Check, CheckCircle2, Eye, FolderOpen, Lock, Plus, RefreshCw, Search, ShieldCheck, Sparkles, Trash2, UserRound, Users } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { FileIcon } from "@/components/file-icon";
 import { RelativeTime } from "@/components/relative-time";
-import { Button, EmptyState, Input, Modal, PageHeader, Select, Spinner, SubjectBadge, buttonClass, cn } from "@/components/ui";
+import { Button, EmptyState, Input, Modal, PageHeader, Pill, Select, Spinner, SubjectBadge, buttonClass, cn } from "@/components/ui";
 import { api, errorMessage } from "@/lib/client";
 import { formatBytes } from "@/lib/files";
 import { subjectTone } from "@/lib/subjects-style";
@@ -53,6 +53,20 @@ export function MaterialsView({
   }, [toDelete]);
   const linkedFor = linked && toDelete && linked.id === toDelete.id ? linked : null;
   const [refreshing, setRefreshing] = useState(false);
+  const [savingVisibility, setSavingVisibility] = useState<string | null>(null);
+
+  async function setVisibility(m: Material, isPublic: boolean) {
+    setSavingVisibility(m.id);
+    try {
+      const res = await api<{ material: Material }>(`/api/materials/${m.id}`, { method: "PATCH", json: { isPublic } });
+      setMaterials((prev) => prev.map((x) => (x.id === m.id ? { ...x, isPublic: res.material.isPublic } : x)));
+      toast.success(isPublic ? `"${m.title}" is now shared with the class` : `"${m.title}" is now private: only you can see it`);
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setSavingVisibility(null);
+    }
+  }
 
   const subjectCounts = useMemo(() => {
     const counts = new Map<string, number>();
@@ -119,7 +133,7 @@ export function MaterialsView({
       <PageHeader
         eyebrow="Class repository"
         title="Materials"
-        description="Slides, handouts and notes shared by the class. Select one or more files to generate a deck."
+        description="Slides, handouts and notes shared by the class, plus your private files. Select one or more to generate a deck."
         actions={
           <Button onClick={() => setUploadOpen(true)}>
             <Plus className="size-4" /> Upload materials
@@ -131,7 +145,7 @@ export function MaterialsView({
         <EmptyState
           icon={<FolderOpen className="size-5" />}
           title="No materials uploaded"
-          description="Upload the first PDF or photos of your notes: they will be available to the whole class."
+          description="Upload the first PDF or photos of your notes: share them with the class or keep them for yourself."
           action={
             <Button onClick={() => setUploadOpen(true)}>
               <Plus className="size-4" /> Upload materials
@@ -210,6 +224,11 @@ export function MaterialsView({
                       <div className="flex items-start gap-2.5">
                         <FileIcon mimeType={m.mimeType} />
                         <SubjectBadge subject={m.subject} className="mt-2" />
+                        {!m.isPublic && (
+                          <Pill className="mt-2 gap-1">
+                            <Lock className="size-3" /> Private
+                          </Pill>
+                        )}
                         <button
                           type="button"
                           onClick={() => toggle(m.id)}
@@ -257,6 +276,20 @@ export function MaterialsView({
                       >
                         <Eye className="size-4" />
                       </a>
+                      {mine && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="px-2"
+                          onClick={() => setVisibility(m, !m.isPublic)}
+                          loading={savingVisibility === m.id}
+                          disabled={savingVisibility !== null}
+                          aria-label={m.isPublic ? `Make ${m.title} private` : `Share ${m.title} with the class`}
+                          title={m.isPublic ? "Shared with the class · click to make it private" : "Only you can see it · click to share it with the class"}
+                        >
+                          {savingVisibility !== m.id && (m.isPublic ? <Users className="size-4" /> : <Lock className="size-4" />)}
+                        </Button>
+                      )}
                       {mine && (
                         <Button variant="ghost" size="sm" className="px-2 text-danger hover:text-danger" onClick={() => setToDelete(m)} aria-label={`Delete ${m.title}`} title="Delete">
                           <Trash2 className="size-4" />

@@ -8,7 +8,8 @@ export const metadata: Metadata = { title: "Materials" };
 export const dynamic = "force-dynamic";
 
 export default async function MaterialsPage() {
-  const [user, materials] = await Promise.all([getCurrentUser(), listMaterials()]);
+  const user = await getCurrentUser();
+  const materials = user ? await listMaterials(user.id) : [];
   return (
     <MaterialsView
       initialMaterials={materials}

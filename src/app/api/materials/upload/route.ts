@@ -18,7 +18,7 @@ export const POST = handle(async (req: Request) => {
   }
   const file = form.get("file");
   if (!(file instanceof File)) throw new HttpError(400, "No file received.");
-  const meta = MaterialMeta.parse({ title: form.get("title"), subject: form.get("subject") });
+  const meta = MaterialMeta.parse({ title: form.get("title"), subject: form.get("subject"), isPublic: form.get("isPublic") !== "false" });
   const mimeType = validateFile(file.name, file.type, file.size);
 
   const bytes = new Uint8Array(await file.arrayBuffer());
@@ -37,6 +37,7 @@ export const POST = handle(async (req: Request) => {
     sizeBytes: bytes.byteLength,
     uploadedBy: user.name,
     uploadedById: user.id,
+    isPublic: meta.isPublic,
     createdAt: Date.now(),
     s3Key: key,
   };

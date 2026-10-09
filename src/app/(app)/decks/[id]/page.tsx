@@ -30,7 +30,7 @@ export default async function DeckPage({ params }: PageProps<"/decks/[id]">) {
   const [cards, aiStatus, materials] = await Promise.all([
     listCards(id),
     owner ? getAiStatus(user) : null,
-    owner ? getMaterialsByIds(deck.options.materialIds) : [],
+    owner ? getMaterialsByIds(deck.options.materialIds, user.id) : [],
   ]);
   const progress = await deckProgress(user.id, id, cards);
   const sourceMaterials = materials.map((m) => ({ id: m.id, title: m.title, filename: m.filename, mimeType: m.mimeType }));

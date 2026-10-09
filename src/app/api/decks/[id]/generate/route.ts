@@ -28,8 +28,8 @@ export const POST = handle(async (req: NextRequest, ctx: RouteContext<"/api/deck
   const cred = await requireCredentials(user, body.provider);
   if (deck.status === "generating") throw new HttpError(409, "A generation is already in progress for this deck.");
 
-  const available = await getMaterialsByIds(deck.options.materialIds);
-  if (available.length === 0) throw new HttpError(400, "The source materials have been deleted.");
+  const available = await getMaterialsByIds(deck.options.materialIds, user.id);
+  if (available.length === 0) throw new HttpError(400, "The source materials have been deleted or made private.");
 
   if (deck.options.cardType === "image_occlusion") {
     const done = new Set((await listCards(id)).filter((c) => c.type === "image_occlusion").map((c) => c.imageMaterialId));

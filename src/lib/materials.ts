@@ -8,6 +8,8 @@ import { isSubject } from "./subjects";
 export const MaterialMeta = z.object({
   title: z.string().trim().min(1, "Enter a title").max(150),
   subject: z.string().refine(isSubject, "Invalid subject"),
+  /** Condiviso con la classe (default) o visibile solo a chi lo carica */
+  isPublic: z.boolean().default(true),
 });
 
 export function validateFile(filename: string, declaredType: string | null | undefined, size: number): string {

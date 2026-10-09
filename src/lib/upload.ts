@@ -43,7 +43,7 @@ function parseError(body: string, status: number): string {
  */
 export async function uploadMaterial(
   file: File,
-  meta: { title: string; subject: string },
+  meta: { title: string; subject: string; isPublic: boolean },
   onProgress: (fraction: number) => void,
 ): Promise<Material> {
   const presign = await api<{ id: string; key: string; url: string; contentType: string }>("/api/materials/presign", {
@@ -66,6 +66,7 @@ export async function uploadMaterial(
   form.append("file", file);
   form.append("title", meta.title);
   form.append("subject", meta.subject);
+  form.append("isPublic", String(meta.isPublic));
   const viaServer = await xhr("POST", "/api/materials/upload", form, {}, onProgress);
   if (viaServer.status === 201) {
     return (JSON.parse(viaServer.body) as { material: Material }).material;

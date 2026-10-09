@@ -14,7 +14,7 @@ export const PATCH = handle(async (req: NextRequest, ctx: Ctx) => {
   await loadDeck(id, user, "own");
   if (!(await getCard(id, cardId))) throw new HttpError(404, "Card not found.");
   const input = toCardInput(CardBody.parse(await readJson(req)));
-  await assertOcclusionImage(input);
+  await assertOcclusionImage(input, user.id);
   await updateCard(id, cardId, input);
   return NextResponse.json({ card: await getCard(id, cardId) });
 });
