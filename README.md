@@ -1,187 +1,243 @@
-# Ankix
+<div align="center">
 
-Sito per una classe di Medicina che trasforma i materiali del corso (PDF, immagini, appunti) in **flashcard Anki** con l'intelligenza artificiale: di default un **modello locale** (Gemma 4 E4B via LiteRT-LM, eseguito nel browser su WebGPU), in alternativa **Gemini, Claude, OpenAI o OpenRouter** con la chiave dello studente.
+<img src="https://capsule-render.vercel.app/api?type=waving&color=0:0f5b5c,100:2a9d8f&height=200&section=header&text=Ankix&fontColor=ffffff&fontSize=72&fontAlignY=36&desc=dai%20materiali%20del%20corso%20alle%20flashcard%20Anki&descAlignY=58&descSize=18" alt="Ankix" width="100%" />
 
-* **Materiali condivisi o privati**: gli studenti caricano i file su un bucket **S3 con endpoint personalizzato** (MinIO, Cloudflare R2, Wasabi, Ceph, Garage…) e per ognuno scelgono se condividerlo con la classe o tenerlo per sé; si può cambiare in qualsiasi momento.
-* **Accesso con Google (o GitHub)** tramite [Better Auth](https://www.better-auth.com), con restrizione facoltativa ai domini email e codice di accesso TOTP (da qualsiasi app authenticator) al primo accesso.
-* **Mazzi privati di default**: ogni mazzo è visibile solo a chi l'ha creato finché non lo rende pubblico; gli altri possono studiarlo, esportarlo o salvarne una copia privata.
-* **AI locale di default**: Gemma 4 E4B gira nel browser dello studente (WebGPU, Chrome/Edge recenti): gratis, senza chiavi, e i materiali non vengono inviati a nessun provider AI. Il modello (\~3 GB) si scarica una volta e resta nella cache del browser (OPFS).
-* **Provider cloud facoltativi**: in *Impostazioni* ogni studente può inserire la propria chiave **Gemini**, **Claude** (Anthropic), **OpenAI** o **OpenRouter** (con modello personalizzabile), sceglierne uno come predefinito e cambiare motore a ogni generazione; le generazioni cloud consumano la sua quota.
-* **Generazione AI**: l'AI legge i materiali e crea card *domanda/risposta* e *cloze* pensate per gli esami di Medicina, con livello, numero di card, lingua e istruzioni personalizzabili.
-* **Image occlusion**: dalle immagini (tavole anatomiche, vetrini, schemi) l'AI individua etichette (con il modello locale: OCR delle etichette con Tesseract e scelta di quelle da coprire) e strutture e crea card con maschere; si possono correggere e disegnare a mano. L'export usa il note type *Image Occlusion* di Anki (serve Anki 23.10+ / AnkiMobile / AnkiDroid aggiornati) con le immagini incluse nel pacchetto.
-* **Revisione**: si possono modificare, aggiungere ed eliminare card, generarne altre senza duplicati e fare un ripasso direttamente nel browser.
-* **Piano di studio con ripetizione dilazionata**: algoritmo **FSRS-5** (lo stesso di Anki), valutazioni *Again / Hard / Good / Easy* con l'intervallo mostrato su ogni pulsante.
-* **Percorso graduale di ogni giorno** (*Today*): riscaldamento con card facili → ripetizioni dalla più facile alla più difficile → nuove card → consolidamento di quelle ancora in apprendimento. Con l'**avvio graduale** le nuove card partono dal 30% e crescono del 10% per ogni giorno di studio.
-* **Adattamento alla persona**: tempo giornaliero, nuove card al giorno, ricordo desiderato e giorni di studio; il piano misura il ritmo reale (secondi per card) e quanto si ricorda davvero, e corregge intervalli e nuove card (meno nuove se ci sono arretrati o il ricordo cala). Data d'esame per mazzo: tutte le card viste in tempo e nessuna ripetizione dopo l'esame. Evidenzia mazzi deboli e card dimenticate spesso.
-* **Calendario** (*Plan*): storico giorno per giorno (risposte, % ricordate, minuti), previsione delle ripetizioni e delle nuove card, giorni di riposo, esami e serie di giorni consecutivi.
-* **Mappe mentali e mappe concettuali** per ogni mazzo, generate dall'AI (cloud o locale) a partire dalle card:
-  * *mappa mentale*: argomento al centro e rami radiali (si può creare anche senza AI, dai tag);
-  * *mappa concettuale* (Novak): domanda focale, concetti disposti dal più generale in alto al più specifico, frecce con parola-legame che si leggono come proposizioni ("Meiosi → produce → cellule aploidi") e legami trasversali tra aree diverse; elenco delle proposizioni modificabile e **modalità esercizio** che nasconde parole-legame o concetti da completare.
-    Entrambe sono modificabili, collegano le card a concetti e proposizioni (da studiare a parte) e si esportano in SVG.
-* **Modalità esame orale** (*Exam*): si scelgono i materiali e il "prof" (l'AI) fa da 1 a 5 **domande casuali** su di essi, lette anche ad alta voce (in alternativa si sceglie la propria domanda); si risponde a voce una domanda alla volta, si può saltare quella che non si sa, e l'AI trascrive le risposte, la confronta con i materiali e dà un **voto in trentesimi** (18 = sufficienza, 30 e lode per le esposizioni eccellenti) con giudizio, punteggi per criterio, errori da correggere giudizio su ogni risposta e argomenti esposti bene, in modo incompleto, male o non citati. Funziona anche **interamente sul dispositivo**: domande e valutazione con il modello locale, trascrizione con Whisper nel browser. Le flashcard degli argomenti esposti male vanno subito in ripasso, quelle degli argomenti incompleti entro domani; se mancano, l'AI le crea in un mazzo di ripasso dedicato. Gli esami restano nello storico.
-* **Export**: pacchetto `.apkg` pronto da importare in Anki (mazzo `Medicina::<Materia>::<Titolo>`, tag per argomento), oppure CSV.
-* **Database sul bucket S3** (come nel progetto mailsender): tabelle Parquet in `<S3_PREFIX>/db/` lette con DuckDB, con lock distribuito per funzionare su più istanze Vercel in parallelo.
+**Carichi le slide, ti ritrovi il mazzo pronto da studiare.**<br/>
+Fatto da studenti di Medicina, per studenti di Medicina.
 
-Stack: Next.js 16 (App Router) · Bun · Tailwind CSS 4 · Better Auth · DuckDB-WASM · AWS SDK v3 · LiteRT-LM (`@litert-lm/core`, da CDN) · `@google/genai` · `@anthropic-ai/sdk` · `openai`.
-Design: sistema "Clinical Academic Notebook" dal progetto Google Stitch *Ankix Medical Redesign* (Newsreader + Plus Jakarta Sans, verde petrolio `#0f5b5c`, modalità chiara e scura automatiche).
+[![Live](https://img.shields.io/badge/prova_il_sito-ankix.vercel.app-0f5b5c?style=for-the-badge&logo=vercel&logoColor=white)](https://ankix.vercel.app)
+
+[![Stars](https://img.shields.io/github/stars/DuPont9029/ankix?style=flat-square&color=0f5b5c)](https://github.com/DuPont9029/ankix/stargazers)
+[![Forks](https://img.shields.io/github/forks/DuPont9029/ankix?style=flat-square&color=0f5b5c)](https://github.com/DuPont9029/ankix/network/members)
+[![Issues](https://img.shields.io/github/issues/DuPont9029/ankix?style=flat-square&color=0f5b5c)](https://github.com/DuPont9029/ankix/issues)
+[![Pull requests](https://img.shields.io/github/issues-pr/DuPont9029/ankix?style=flat-square&color=0f5b5c)](https://github.com/DuPont9029/ankix/pulls)
+[![Last commit](https://img.shields.io/github/last-commit/DuPont9029/ankix?style=flat-square&color=0f5b5c)](https://github.com/DuPont9029/ankix/commits/main)
+[![Top language](https://img.shields.io/github/languages/top/DuPont9029/ankix?style=flat-square&color=0f5b5c)](https://github.com/DuPont9029/ankix/search?l=typescript)
+[![Repo size](https://img.shields.io/github/repo-size/DuPont9029/ankix?style=flat-square&color=0f5b5c)](https://github.com/DuPont9029/ankix)
+
+</div>
+
+https://github.com/user-attachments/assets/c0ae299a-8ac0-4977-b14e-4457c32be436
+
+---
+
+## Cos'è
+
+Ankix prende PDF, foto delle tavole e appunti e li trasforma in flashcard per Anki.
+L'AI gira **direttamente nel tuo browser** (Gemma 4 su WebGPU): niente chiavi, niente costi, i tuoi file non finiscono da nessuna parte.
+Se preferisci un modello più grosso puoi usare la tua chiave Gemini, Claude, OpenAI o OpenRouter.
+
+Poi ci studi sopra: ripasso con lo stesso algoritmo di Anki, piano giornaliero, mappe concettuali e pure una simulazione d'esame orale con voto in trentesimi.
+
+<table>
+<tr>
+<td width="50%" valign="top">
+
+### 🧠 Genera
+- Card domanda/risposta e cloze
+- **Image occlusion** su tavole anatomiche e vetrini
+- Mappe mentali e mappe concettuali (Novak)
+- Export `.apkg` per Anki o CSV
+
+</td>
+<td width="50%" valign="top">
+
+### 📅 Studia
+- Ripetizione dilazionata **FSRS-5**
+- Percorso del giorno che si adatta al tuo ritmo
+- Calendario con data d'esame per ogni mazzo
+- Statistiche su mazzi deboli e card dimenticate
+
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+
+### 🎙️ Esame orale
+- Il "prof" ti fa domande a voce sui materiali
+- Rispondi parlando, lui trascrive e valuta
+- Voto in trentesimi, errori e argomenti da ripassare
+- Funziona anche tutto offline (Whisper nel browser)
+
+</td>
+<td width="50%" valign="top">
+
+### 👥 Classe
+- Login Google o GitHub, codice TOTP della classe
+- Materiali condivisi o privati, a scelta
+- Mazzi privati di default, pubblicabili quando vuoi
+- Salvi una copia dei mazzi degli altri
+
+</td>
+</tr>
+</table>
+
+## Come funziona
+
+```mermaid
+flowchart LR
+    A["📄 PDF, immagini, appunti"] -->|upload diretto| S3[("Bucket S3")]
+    S3 --> AI{"Motore AI"}
+    AI -->|default| L["Gemma 4 nel browser<br/>WebGPU, gratis"]
+    AI -->|con la tua chiave| C["Gemini · Claude<br/>OpenAI · OpenRouter"]
+    L --> D["🗂️ Mazzo"]
+    C --> D
+    D --> R["Ripasso FSRS-5"]
+    D --> M["Mappe"]
+    D --> E["Esame orale"]
+    D --> X[".apkg → Anki"]
+```
+
+Non c'è un database vero e proprio: tutto vive sul bucket S3 come tabelle **Parquet** lette con **DuckDB**, con un lock distribuito (Redis o lease su S3) così più istanze Vercel possono scrivere senza pestarsi i piedi.
+
+## Stack
+
+<p align="center">
+  <a href="https://skillicons.dev">
+    <img src="https://skillicons.dev/icons?i=nextjs,react,ts,bun,tailwind,vercel,aws,redis&theme=dark" alt="Stack" />
+  </a>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/DuckDB--WASM-FFF000?style=flat-square&logo=duckdb&logoColor=black" />
+  <img src="https://img.shields.io/badge/Better_Auth-000000?style=flat-square" />
+  <img src="https://img.shields.io/badge/LiteRT--LM-Gemma_4-4285F4?style=flat-square&logo=google&logoColor=white" />
+  <img src="https://img.shields.io/badge/Whisper-Transformers.js-FFD21E?style=flat-square&logo=huggingface&logoColor=black" />
+  <img src="https://img.shields.io/badge/Tesseract-OCR-3C873A?style=flat-square" />
+</p>
 
 ## Avvio rapido
 
 ```bash
 bun install
-cp .env.example .env.local   # poi compila i valori
-bun dev                      # http://localhost:3000
+cp .env.example .env.local   # compila i valori
+bun dev                      # → http://localhost:3000
 ```
 
-Produzione:
+Ti servono un bucket S3-compatibile (MinIO, R2, Wasabi, Cubbit…) e un client OAuth Google. Il resto è opzionale.
 
-```bash
-bun run build
-bun run start
-```
+<details>
+<summary><b>⚙️ Variabili d'ambiente</b></summary>
+<br/>
 
-## Configurazione (`.env.local`)
+**Obbligatorie**
 
-| Variabile | Descrizione |
-|----|----|
-| `BETTER_AUTH_URL` | URL pubblico del sito: già impostato in `.env.development` (`http://localhost:3000`) e `.env.production` (da aggiornare con il dominio reale). Non metterlo in `.env.local`, che ha la precedenza su entrambi |
-| `BETTER_AUTH_SECRET` | Segreto ≥ 32 caratteri (`openssl rand -base64 32`): firma la sessione e cifra le chiavi AI degli studenti. Se lo cambi, tutti devono rifare l'accesso e reinserire le chiavi |
-| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Login con Google (vedi sotto) |
-| `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | Facoltativo: login con GitHub |
-| `ALLOWED_EMAIL_DOMAINS` | Facoltativo: domini ammessi, es. `studenti.unimi.it,unimi.it`. Vuoto = qualsiasi account |
-| `CLASS_TOTP_SECRET` | Facoltativo: segreto **TOTP** (base32) della classe. Se impostato, al primo login ogni studente deve inserire il codice a 6 cifre che l'admin legge dalla sua app authenticator |
-| `ADMIN_EMAILS` | Email degli amministratori: nella pagina *Codice di accesso* vedono il codice attuale e il QR da aggiungere all'app authenticator |
-| `NEXT_PUBLIC_CLASS_NAME` | Nome del corso mostrato nell'interfaccia |
-| `GEMINI_MODEL` | Modello Gemini predefinito (default `gemini-3.6-flash`) |
-| `ANTHROPIC_MODEL` | Modello Claude predefinito (default `claude-opus-5-5`) |
-| `OPENAI_MODEL` | Modello OpenAI predefinito (default `gpt-5`) |
-| `OPENROUTER_MODEL` | Modello OpenRouter predefinito (default `openrouter/auto`) |
-| `GEMINI_BASE_URL` | Facoltativo: endpoint alternativo/proxy per l'API Gemini |
-| `AWS_S3_ENDPOINT` | Endpoint S3 personalizzato, es. `https://s3.cubbit.eu` |
-| `AWS_REGION` | Regione del bucket |
-| `AWS_S3_FORCE_PATH_STYLE` | `true` per la maggior parte degli S3-compatibili |
+| Variabile | A cosa serve |
+|---|---|
+| `BETTER_AUTH_SECRET` | ≥ 32 caratteri (`openssl rand -base64 32`). Se lo cambi tutti devono rifare login |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Login con Google |
+| `AWS_S3_ENDPOINT`, `AWS_REGION` | Endpoint e regione del bucket |
 | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | Credenziali del bucket |
-| `S3_BUCKET` / `S3_PREFIX` | Bucket e prefisso delle chiavi (`<prefisso>/materials/<id>/<file>`) |
-| `MAX_UPLOAD_MB` | Dimensione massima per file (default 50) |
+| `S3_BUCKET` / `S3_PREFIX` | Bucket e prefisso |
+| `AWS_S3_FORCE_PATH_STYLE` | `true` per quasi tutti gli S3-compatibili |
 
-### Login con Google
+**Opzionali**
 
+| Variabile | A cosa serve |
+|---|---|
+| `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | Login con GitHub |
+| `ALLOWED_EMAIL_DOMAINS` | Es. `studenti.unimi.it,unimi.it` |
+| `CLASS_TOTP_SECRET` | Codice a 6 cifre richiesto al primo accesso |
+| `ADMIN_EMAILS` | Chi può vedere il QR del codice di classe |
+| `NEXT_PUBLIC_CLASS_NAME` | Nome del corso nell'interfaccia |
+| `GEMINI_MODEL`, `ANTHROPIC_MODEL`, `OPENAI_MODEL`, `OPENROUTER_MODEL` | Modelli predefiniti |
+| `UPSTASH_REDIS_REST_URL` / `_TOKEN` | Lock veloce su Redis (consigliato su Vercel) |
+| `MAX_UPLOAD_MB` | Default 50 |
 
-1. Vai su [Google Cloud Console → Credenziali](https://console.cloud.google.com/apis/credentials) e crea un **ID client OAuth** di tipo *Applicazione web* (se richiesto, configura prima la schermata di consenso OAuth come "Esterno").
-2. In **Origini JavaScript autorizzate** aggiungi `http://localhost:3000` e il dominio di produzione (es. `https://ankix.miodominio.it`).
-3. In **URI di reindirizzamento autorizzati** aggiungi `<BETTER_AUTH_URL>/api/auth/callback/google`, ad esempio `http://localhost:3000/api/auth/callback/google` e quello di produzione.
-4. Copia ID client e segreto in `GOOGLE_CLIENT_ID` e `GOOGLE_CLIENT_SECRET`.
+`BETTER_AUTH_URL` è già in `.env.development` / `.env.production`: non metterlo in `.env.local`.
 
-GitHub è analogo (*Settings → Developer settings → OAuth Apps*, callback `<BETTER_AUTH_URL>/api/auth/callback/github`). Nella pagina di accesso compaiono solo i provider configurati.
+</details>
 
-### CORS del bucket (consigliato)
+<details>
+<summary><b>🔑 Login con Google</b></summary>
+<br/>
 
-I file vengono caricati **direttamente dal browser al bucket** tramite URL prefirmati: così non passano dal server e non ci sono limiti di dimensione lato Next.js. Perché funzioni, il bucket deve consentire richieste `PUT` dall'origine del sito:
+1. [Google Cloud Console → Credenziali](https://console.cloud.google.com/apis/credentials) → crea un **ID client OAuth** (*Applicazione web*).
+2. Origini autorizzate: `http://localhost:3000` e il tuo dominio.
+3. Redirect: `<BETTER_AUTH_URL>/api/auth/callback/google`.
+4. Copia ID e segreto nel `.env.local`.
+
+GitHub è uguale (*Settings → Developer settings → OAuth Apps*, callback `/api/auth/callback/github`).
+
+</details>
+
+<details>
+<summary><b>🪣 CORS del bucket</b></summary>
+<br/>
+
+I file vanno dal browser al bucket con URL prefirmati, quindi il bucket deve accettare `PUT` dal sito. Se non lo fa, Ankix passa dal server da solo: funziona lo stesso, solo più lento sui file grossi.
 
 ```json
-[
-  {
-    "AllowedOrigins": ["https://ankix.miodominio.it", "http://localhost:3000"],
-    "AllowedMethods": ["PUT", "GET", "HEAD"],
-    "AllowedHeaders": ["*"],
-    "ExposeHeaders": ["ETag"],
-    "MaxAgeSeconds": 3600
-  }
-]
+[{
+  "AllowedOrigins": ["https://ankix.miodominio.it", "http://localhost:3000"],
+  "AllowedMethods": ["PUT", "GET", "HEAD"],
+  "AllowedHeaders": ["*"],
+  "ExposeHeaders": ["ETag"],
+  "MaxAgeSeconds": 3600
+}]
 ```
 
-MinIO non usa il CORS per-bucket: di default accetta tutte le origini, e si può restringere con la variabile del server `MINIO_API_CORS_ALLOW_ORIGIN`. Per gli altri provider, con AWS CLI:
-`aws s3api put-bucket-cors --endpoint-url $AWS_S3_ENDPOINT --bucket $S3_BUCKET --cors-configuration file://cors.json`
-(il file deve avere la forma `{"CORSRules": [ ... ]}`).
+</details>
 
-Se il CORS non è configurato l'app **ripiega automaticamente** sul caricamento tramite server (`/api/materials/upload`), quindi funziona comunque; è solo meno efficiente per file grandi.
+<details>
+<summary><b>▲ Deploy su Vercel</b></summary>
+<br/>
 
-> L'SDK AWS è configurato con `requestChecksumCalculation: "WHEN_REQUIRED"`: le versioni recenti aggiungono di default checksum CRC32 che molti provider S3-compatibili rifiutano.
+1. Importa il repo (Next.js e Bun vengono rilevati da soli).
+2. Copia le variabili d'ambiente e imposta `BETTER_AUTH_URL` al dominio di produzione.
+3. Aggiungi **Upstash Redis** dal Marketplace (piano gratuito): senza, ogni scrittura prende 1–2 secondi in più.
+4. Lascia attivo Fluid compute: la generazione in background arriva a 300 s.
 
-## Come funziona
+L'estensione parquet di DuckDB-WASM è già in `vendor/duckdb-extensions/`. Se aggiorni `@duckdb/duckdb-wasm` ricordati di scaricare quella nuova.
 
+</details>
 
-1. **Accesso**: login OAuth con Better Auth in modalità *stateless* (sessione in un cookie cifrato JWE, nessun database per l'autenticazione). Al primo accesso l'utente viene registrato in DuckDB tramite l'email; se `CLASS_TOTP_SECRET` è impostato deve inserire, una volta sola, il codice **TOTP** della classe (RFC 6238: SHA-1, 6 cifre, 30 secondi, accettato con ±1 passo, cioè circa 60 secondi da quando compare). L'admin aggiunge il QR a qualsiasi app authenticator (Google/Microsoft Authenticator, Authy, 1Password…) e detta il codice a chi deve entrare. Ogni account ha al massimo 10 tentativi ogni 10 minuti; gli admin non devono inserirlo. Per revocare il QR basta cambiare il segreto. Il `proxy.ts` fa un controllo rapido del cookie, mentre pagine e API verificano davvero sessione, dominio e codice.
-   **Privacy dei mazzi**: un mazzo nasce privato. Un mazzo privato di un altro utente risponde "non trovato" ovunque (pagina, API, export, ripasso, titolo della scheda). Solo il proprietario può modificarlo, generare altre card, renderlo pubblico/privato o eliminarlo; sui mazzi pubblici gli altri possono solo leggere, studiare, esportare e **salvare una copia** (che diventa un loro mazzo privato). Anche i materiali possono essere privati (vedi sotto).
-2. **Motore AI**: di default il **modello locale** (nessuna configurazione). Facoltativamente lo studente incolla in *Impostazioni* una chiave Gemini ([Google AI Studio](https://aistudio.google.com/apikey)), Claude ([Claude Console](https://platform.claude.com/settings/keys)), OpenAI o OpenRouter, e può indicare un modello diverso da quello predefinito. Il server verifica la chiave con il provider e salva chiavi, modelli e motore predefinito in un cookie `httpOnly` cifrato (AES-256-GCM, chiave derivata da `BETTER_AUTH_SECRET`) e legato all'utente: gli script della pagina non possono leggerlo e non finisce nel database. Le chiavi sono usate solo durante le generazioni avviate da quello studente e si cancellano all'uscita dall'account. Una chiave Gemini salvata con la versione precedente viene migrata automaticamente.
-3. **Materiali**: formati accettati PDF, PNG, JPG, WEBP, HEIC/HEIF, TXT, MD. Ognuno ha titolo, materia e visibilità: **condiviso** con la classe (default, come i materiali caricati prima di questa opzione) o **privato**. Solo chi l'ha caricato può cambiarne la visibilità o eliminarlo. Un materiale privato di un altro utente risponde "non trovato" ovunque (libreria, generazione, esame, download); l'unica eccezione sono le immagini usate come tavole di *image occlusion* in un mazzo pubblico, che restano visibili a chi studia quel mazzo. Se un materiale diventa privato, gli altri non possono più generare card nuove da lui, ma i mazzi già creati restano intatti.
-4. **Generazione con il modello locale**: tutto avviene nella scheda del browser (va lasciata aperta). I materiali vengono scaricati dal bucket (URL prefirmato, oppure tramite `/api/materials/[id]/content` se il CORS non lo consente), il testo estratto (pdf.js per i PDF, OCR Tesseract per le immagini) e diviso in blocchi da 8.000 caratteri, ognuno elaborato in una conversazione nuova (contesto di 8.192 token). Con molto materiale si leggono blocchi distribuiti su tutti i file, circa uno ogni 3 card richieste. Il modello scrive le card in un formato a righe (`Q:`/`A:`/`C:`) più robusto del JSON per un modello piccolo; si può interrompere tenendo le card già scritte. Le card finite vengono inviate al server, che le ripulisce come quelle dei provider cloud (sanificazione, cloze, duplicati).
-   **Generazione con un provider cloud**: la richiesta crea subito il mazzo in stato *in generazione* e il lavoro prosegue in background (`after()`), quindi si può anche chiudere la pagina. PDF e immagini vengono passati al modello (con Gemini i file oltre 8 MB passano dalla Files API e vengono eliminati a fine generazione). L'output è JSON strutturato (structured output di ciascun provider), validato e ripulito:
-   * HTML sanificato con whitelist (niente script/attributi),
-   * cloze senza `{{c1::…}}` scartate o convertite,
-   * duplicati rimossi (anche rispetto alle card già presenti quando si usa *Genera altre*),
-   * tag normalizzati per Anki.
-     Errori di quota (429) o temporanei vengono ritentati automaticamente, poi mostrati con un messaggio chiaro e il pulsante *Riprova*.
-5. **Studio programmato**: ogni elemento (card, singola cloze o maschera) ha per ogni studente uno stato FSRS (`card_states`) e ogni risposta finisce nello storico (`review_log`). `lib/srs.ts` è condiviso: il browser lo usa per l'anteprima degli intervalli e per far tornare nella sessione le card in apprendimento, il server ricalcola tutto e salva. Le risposte vengono inviate a gruppi (ogni 8, dopo 20 s di pausa, a fine sessione o chiudendo la pagina) perché ogni scrittura riscrive i Parquet; ognuna ha un id, quindi un nuovo invio non la duplica. La giornata di studio cambia alle 4 del mattino nel fuso orario del browser. Il piano del giorno (`lib/study.ts`) sceglie le ripetizioni più a rischio entro il tempo disponibile e rimanda le altre; il ricordo effettivo degli ultimi 30 giorni corregge il ricordo usato per gli intervalli.
-6. **Mappe**: una riga per studente e per mazzo (`mind_maps`) con la mappa mentale (albero) e quella concettuale (concetti con livello + proposizioni). L'AI riceve le card numerate e restituisce le due strutture con richieste separate; con il modello locale usa formati a righe. Il server valida tutto: per la mappa mentale una radice e nessun ciclo, per quella concettuale proposizioni tra concetti esistenti, tutte con parola-legame, e livelli coerenti (un legame gerarchico scende sempre di livello, altrimenti diventa trasversale).
-7. **Esame orale**: le domande casuali nascono da `/api/exams/questions`: l'AI propone 12 domande su parti diverse dei materiali (evitando quelle degli ultimi esami sugli stessi file) e il server ne estrae a caso il numero richiesto, su argomenti diversi. Il browser registra ogni risposta separatamente (MediaRecorder, opus a 24 kbps, massimo 10 minuti per risposta) e legge le domande con la sintesi vocale. La trascrizione avviene con **Gemini** (audio inviato al modello scelto) o **OpenAI** (`gpt-4o-transcribe`) tramite `/api/exams/transcribe`, oppure dal vivo con il riconoscimento vocale del browser (Web Speech API, gratis ma meno preciso sui termini tecnici); l'audio non viene salvato. La valutazione richiede un provider cloud: riceve materiali, trascrizione e card numerate dei mazzi dello studente generati da quei materiali, e restituisce voto, argomenti e card collegate (più al massimo 15 card nuove sulle lacune). Le card degli argomenti deboli vengono riprogrammate in `card_states` come dopo un *Again* (esposti male: subito) o un *Hard* (incompleti: entro domani), senza scrivere nello storico delle ripetizioni; una scadenza già più vicina non viene mai spostata. L'esito è salvato nella tabella `oral_exams`, visibile solo allo studente.
-8. **Esame con il modello locale**: tutto avviene nel browser e il server riceve solo il risultato. Il motore locale prova un contesto di 32k token (il massimo di Gemma 4 E4B) e, se la GPU non ce la fa, ripiega su 16k e poi 8k, ricordando quello che funziona. I materiali vengono letti nel browser (pdf.js, OCR per le immagini). Per le domande si usano estratti casuali distribuiti su tutto il materiale più le flashcard collegate; per la valutazione i passaggi più pertinenti alle domande e alle risposte (punteggio per parole in comune, pesate per rarità). Il modello risponde in un formato a righe che il browser converte e il server ripulisce con gli stessi controlli dei provider cloud. La trascrizione usa **Whisper large-v3-turbo** (Transformers.js su WebGPU, pesi a 4 bit, ~560 MB scaricati una volta), perché il file web di Gemma accetta solo testo; l'audio non lascia il dispositivo.
-9. **Export** `.apkg`: note type dedicati *Ankix Base* (Fronte/Retro/Extra) e *Ankix Cloze* (Testo/Extra), con stile chiaro/scuro. I GUID sono stabili: reimportando un mazzo aggiornato Anki non crea duplicati.
-
-## Database su S3
-
-Il database sta sul bucket, come nel progetto mailsender: ogni tabella è un file Parquet letto con DuckDB.
-È progettato per più istanze serverless in parallelo (Vercel):
-
-```
-<S3_PREFIX>/db/manifest.json                    versione corrente: quale file contiene ogni tabella
-<S3_PREFIX>/db/data/<tabella>-<versione>-<id>.parquet   file immutabili (users, materials, decks, cards,
-                                                card_states, review_log, study_prefs, mind_maps)
-<S3_PREFIX>/db/lock.json                        lock di scrittura (solo se non usi Redis)
-<S3_PREFIX>/materials/<id>/<file>               materiali caricati
-```
-
-* **Letture**: ogni istanza tiene una copia in un DuckDB in memoria; prima di leggere controlla il manifest (al massimo ogni 200 ms) e ricarica solo le tabelle cambiate. Se un elemento cercato non c'è (es. appena creato su un'altra istanza) rilegge subito il bucket.
-* **Scritture**: lock distribuito → rilettura del manifest → transazione → upload dei nuovi Parquet → nuovo manifest → commit. Le scritture sono serializzate fra **tutte** le istanze: nessuna può sovrascriverne un'altra. Se qualcosa fallisce si fa rollback e resta la versione precedente, sempre coerente fra le tabelle.
-* **Lock**:
-  * con `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` (o `KV_REST_API_URL` / `KV_REST_API_TOKEN` dell'integrazione Vercel) usa Redis: atomico e veloce (**consigliato su Vercel**);
-  * altrimenti usa un *lease* su S3 (`db/lock.json`). Serve perché molti provider S3-compatibili, Cubbit compreso, **ignorano le scritture condizionali** (`If-Match` / `If-None-Match`). Funziona senza servizi esterni, ma ogni scrittura richiede circa 1–2 secondi.
-* I file sostituiti vengono cancellati dopo 10 minuti, così un'istanza che sta leggendo la versione precedente non trova file mancanti.
-* I Parquet **non vengono mai mandati al browser**: contengono i mazzi privati di tutti, quindi li legge solo il server.
-* Migrazione automatica: al primo avvio senza manifest vengono importati i Parquet della versione precedente (`<S3_PREFIX>/db/<tabella>.parquet`).
-* Le tabelle aggiunte dopo la creazione del bucket (es. quelle dello studio) mancano dal manifest finché non vengono scritte la prima volta: vengono considerate vuote.
-* Backup: copia la cartella `<S3_PREFIX>/db/` o attiva il versioning del bucket.
-
-## Deploy su Vercel
-
-
-1. Importa il repository su Vercel (rileva Next.js e `bun.lock`).
-2. In *Settings → Environment Variables* imposta tutte le variabili del `.env.local` (i file `.env*` non vengono caricati su git), in particolare:
-   * `BETTER_AUTH_URL` = l'URL di produzione (es. `https://ankix.vercel.app`) e `BETTER_AUTH_SECRET`;
-   * `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` e, su Google Cloud, l'origine `https://<dominio>` e il redirect `https://<dominio>/api/auth/callback/google`;
-   * le variabili S3 (`AWS_S3_ENDPOINT`, `AWS_REGION`, `AWS_S3_FORCE_PATH_STYLE`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `S3_BUCKET`, `S3_PREFIX`), facoltativamente `GEMINI_MODEL` / `ANTHROPIC_MODEL` / `OPENAI_MODEL` / `OPENROUTER_MODEL`, `NEXT_PUBLIC_CLASS_NAME`, `ADMIN_EMAILS`, `CLASS_TOTP_SECRET`.
-3. Consigliato: aggiungi **Upstash Redis** dal Marketplace di Vercel (piano gratuito) e collegalo al progetto; le variabili `KV_REST_API_URL` / `KV_REST_API_TOKEN` vengono riconosciute automaticamente.
-4. Durata delle funzioni: la generazione delle flashcard gira in background fino a 300 s (`maxDuration`); su Vercel serve Fluid compute (attivo di default) per questo limite.
-5. DuckDB gira come **DuckDB-WASM** (nessun binario nativo): i file `.wasm` di DuckDB e di sql.js (export Anki) sono inclusi nelle funzioni tramite `outputFileTracingIncludes` in `next.config.ts`.
-6. L'estensione **parquet** di DuckDB-WASM non è inclusa nel `.wasm` e normalmente verrebbe scaricata e salvata in `~/.duckdb` (di sola lettura su Vercel). Per questo l'estensione ufficiale è inclusa nel repository in `vendor/duckdb-extensions/<versione>/<piattaforma>/` e caricata da lì all'avvio, senza rete. Se aggiorni `@duckdb/duckdb-wasm`, scarica i file della nuova versione di DuckDB:
-   `curl -o vendor/duckdb-extensions/<v>/wasm_eh/parquet.duckdb_extension.wasm https://extensions.duckdb.org/<v>/wasm_eh/parquet.duckdb_extension.wasm` (e lo stesso per `wasm_mvp`).
-
-Note:
-
-* Il caricamento dei materiali avviene direttamente dal browser al bucket (URL prefirmati): il limite di 4,5 MB del body delle funzioni Vercel non si applica. Serve il CORS del bucket (su Cubbit è già aperto).
-* Sviluppo e produzione possono usare lo stesso bucket in sicurezza (le scritture sono serializzate), ma condividono i dati: per un ambiente di prova separato usa un altro `S3_PREFIX`.
-
-## Struttura
+<details>
+<summary><b>📁 Struttura del codice</b></summary>
+<br/>
 
 ```
 src/
-  proxy.ts                 protezione delle route
-  app/(app)/               dashboard, oggi (percorso), piano (calendario), materiali, genera, mazzi, studio, mappe
-  app/api/                 API (auth, materiali, mazzi, card, export)
-  lib/db.ts                DuckDB-WASM in memoria + tabelle Parquet versionate sul bucket (manifest)
-  lib/duckdb-engine.ts     avvio di DuckDB-WASM (modalità blocking per Node)
-  lib/lock.ts              lock distribuito per le scritture (Redis/Upstash o lease su S3)
-  lib/s3.ts                client S3 con endpoint personalizzato
-  lib/ai/providers.ts      motori AI disponibili (condiviso client/server)
-  lib/ai/settings.ts       chiavi, modelli e motore predefinito nel cookie cifrato
-  lib/ai/common.ts         prompt, schemi JSON e pulizia delle card (provider cloud)
-  lib/ai/cloud/            Gemini, Claude, OpenAI/OpenRouter
-  lib/ai/local/            modello locale nel browser: motore LiteRT-LM, lettura materiali, generazione
-  lib/srs.ts               FSRS-5 e giorni di studio (condiviso client/server)
-  lib/study.ts             piano del giorno, adattamento, calendario, salvataggio delle risposte
-  lib/mindmap.ts           mappe mentali: validazione, mappa dai tag, disposizione radiale
-  lib/conceptmap.ts        mappe concettuali: validazione, livelli, disposizione gerarchica, esercizio
-  lib/anki.ts              generatore .apkg (SQLite via sql.js) e CSV
+├─ app/(app)/        pagine: oggi, piano, materiali, mazzi, studio, mappe, esame
+├─ app/api/          API
+└─ lib/
+   ├─ db.ts          DuckDB + Parquet versionati sul bucket
+   ├─ lock.ts        lock distribuito (Redis o S3)
+   ├─ srs.ts         FSRS-5
+   ├─ study.ts       piano del giorno e calendario
+   ├─ anki.ts        export .apkg / CSV
+   └─ ai/            provider cloud e modello locale
 ```
 
+</details>
 
+## Statistiche
+
+<div align="center">
+
+<a href="https://github.com/DuPont9029/ankix/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=DuPont9029/ankix" alt="Contributors" />
+</a>
+
+<br/><br/>
+
+<a href="https://star-history.com/#DuPont9029/ankix&Date">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=DuPont9029/ankix&type=Date&theme=dark" />
+    <img src="https://api.star-history.com/svg?repos=DuPont9029/ankix&type=Date" alt="Star history" width="600" />
+  </picture>
+</a>
+
+<!-- Repobeats: genera il link su https://repobeats.axiom.co e incollalo qui sotto
+![Alt](https://repobeats.axiom.co/api/embed/XXXXXXXX.svg "Repobeats analytics image")
+-->
+
+</div>
+
+---
+
+<div align="center">
+<sub>Se ti ha salvato una sessione d'esame, lascia una ⭐</sub>
+</div>
+
+<img src="https://capsule-render.vercel.app/api?type=waving&color=0:2a9d8f,100:0f5b5c&height=100&section=footer" width="100%" />
