@@ -47,10 +47,10 @@ export async function transcribeRecording(
 const MaterialIds = z.array(z.uuid()).min(1, "Select at least one material").max(10, "At most 10 materials per exam");
 
 /** Materiali dell'esame con il loro contenuto, scaricato dal bucket. */
-async function loadSources(ids: string[]) {
+async function loadSources(ids: string[], userId: string) {
   const materialIds = [...new Set(ids)];
-  const materials = await getMaterialsByIds(materialIds);
-  if (materials.length !== materialIds.length) throw new HttpError(400, "Some of the selected materials no longer exist.");
+  const materials = await getMaterialsByIds(materialIds, userId);
+  if (materials.length !== materialIds.length) throw new HttpError(400, "Some of the selected materials no longer exist or are private.");
   const sources: SourceFile[] = [];
   for (const m of materials) {
     try {
@@ -112,8 +112,10 @@ export async function prepareQuestions(user: Pick<User, "id">, body: z.infer<typ
   const materialIds = [...new Set(body.materialIds)];
   const { cards } = await relatedCards(user.id, materialIds);
   const fromCards = cards.length >= MIN_CARDS_FOR_QUESTIONS;
-  const { materials, sources } = fromCards ? { materials: await getMaterialsByIds(materialIds), sources: [] } : await loadSources(materialIds);
-  if (materials.length === 0) throw new HttpError(400, "Some of the selected materials no longer exist.");
+  const { materials, sources } = fromCards
+    ? { materials: await getMaterialsByIds(materialIds, user.id), sources: [] }
+    : await loadSources(materialIds, user.id);
+  if (materials.length !== materialIds.length) throw new HttpError(400, "Some of the selected materials no longer exist or are private.");
   const loaded = Date.now();
   const avoid = await pastQuestions(user.id, materialIds);
   try {
@@ -186,9 +188,9 @@ export async function runExam(user: Pick<User, "id" | "name">, body: z.infer<typ
   const model = cred ? cred.model : LOCAL_MODEL_LABEL;
   // Il modello locale ha già letto i materiali nel browser: servono solo i metadati.
   const { materialIds, materials, sources } = local
-    ? { materialIds: [...new Set(body.materialIds)], materials: await getMaterialsByIds(body.materialIds), sources: [] }
-    : await loadSources(body.materialIds);
-  if (materials.length === 0) throw new HttpError(400, "Some of the selected materials no longer exist.");
+    ? { materialIds: [...new Set(body.materialIds)], materials: await getMaterialsByIds([...new Set(body.materialIds)], user.id), sources: [] }
+    : await loadSources(body.materialIds, user.id);
+  if (materials.length !== materialIds.length) throw new HttpError(400, "Some of the selected materials no longer exist or are private.");
 
   const { decks, cards } = await relatedCards(user.id, materialIds);
   const subject = materials[0].subject;

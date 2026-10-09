@@ -11,7 +11,7 @@ export const POST = handle(async (req: NextRequest, ctx: RouteContext<"/api/deck
   const { id } = await ctx.params;
   await loadDeck(id, user, "own");
   const input = toCardInput(CardBody.parse(await readJson(req)));
-  await assertOcclusionImage(input);
+  await assertOcclusionImage(input, user.id);
   const [card] = await appendCards(id, [input]);
   return NextResponse.json({ card }, { status: 201 });
 });

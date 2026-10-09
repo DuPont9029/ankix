@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, CheckCircle2, Search } from "lucide-react";
+import { Check, CheckCircle2, Lock, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 import { cn, Input } from "@/components/ui";
 import { formatBytes } from "@/lib/files";
@@ -39,7 +39,10 @@ export function MaterialPicker({ materials, selected, onToggle }: { materials: M
                   {active && <Check className="size-3.5" strokeWidth={3} />}
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-semibold text-ink">{m.title}</span>
+                  <span className="flex items-center gap-1.5 text-sm font-semibold text-ink">
+                    <span className="truncate">{m.title}</span>
+                    {!m.isPublic && <Lock className="size-3.5 shrink-0 text-ink-faint" aria-label="Private" />}
+                  </span>
                   <span className="block truncate text-[11px] font-medium text-ink-muted">
                     {m.subject} · {m.filename}
                   </span>

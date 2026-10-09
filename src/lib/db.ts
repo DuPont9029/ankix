@@ -73,6 +73,7 @@ const SCHEMA = [
     s3_key VARCHAR NOT NULL,
     uploaded_by VARCHAR NOT NULL,
     uploaded_by_id VARCHAR,
+    is_public BOOLEAN NOT NULL DEFAULT true,
     created_at BIGINT NOT NULL
   )`,
   `CREATE TABLE decks (

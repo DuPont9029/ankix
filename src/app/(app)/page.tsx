@@ -26,7 +26,7 @@ export default async function DashboardPage() {
     stats(user.id),
     listDecks(user.id, "mine"),
     listDecks(user.id, "public"),
-    listMaterials(),
+    listMaterials(user.id),
     buildPlan(user.id),
   ]);
   const planCounts = { review: 0, fresh: 0 };

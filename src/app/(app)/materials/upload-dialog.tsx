@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle2, Trash2, UploadCloud, XCircle } from "lucide-react";
+import { CheckCircle2, Lock, Trash2, UploadCloud, Users, XCircle } from "lucide-react";
 import { useRef, useState, type DragEvent } from "react";
 import { toast } from "sonner";
 import { FileIcon } from "@/components/file-icon";
@@ -40,6 +40,7 @@ export function UploadDialog({
   const [dragging, setDragging] = useState(false);
   const [busy, setBusy] = useState(false);
   const [lastSubject, setLastSubject] = useState<string>(SUBJECTS[0]);
+  const [isPublic, setIsPublic] = useState(true);
   const inputRef = useRef<HTMLInputElement>(null);
 
   function addFiles(files: FileList | File[]) {
@@ -90,7 +91,7 @@ export function UploadDialog({
     for (const it of queue) {
       update(it.key, { state: "uploading", progress: 0, error: undefined });
       try {
-        const material = await uploadMaterial(it.file, { title: it.title.trim(), subject: it.subject }, (p) =>
+        const material = await uploadMaterial(it.file, { title: it.title.trim(), subject: it.subject, isPublic }, (p) =>
           update(it.key, { progress: p }),
         );
         update(it.key, { state: "done", progress: 1 });
@@ -113,6 +114,7 @@ export function UploadDialog({
   function close() {
     if (busy) return;
     setItems([]);
+    setIsPublic(true);
     onClose();
   }
 
@@ -176,6 +178,34 @@ export function UploadDialog({
           }}
         />
       </div>
+
+      <fieldset className="mt-4" disabled={busy}>
+        <legend className="mb-2 text-[13px] font-semibold text-ink">Who can see these files?</legend>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          {[
+            { value: true, icon: Users, title: "The whole class", hint: "Everyone can open them and generate decks." },
+            { value: false, icon: Lock, title: "Only me", hint: "Private: you can share them later." },
+          ].map((opt) => {
+            const active = isPublic === opt.value;
+            return (
+              <label
+                key={String(opt.value)}
+                className={cn(
+                  "flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-primary",
+                  active ? "border-primary bg-primary-soft" : "border-line hover:border-line-strong",
+                )}
+              >
+                <input type="radio" name="visibility" className="sr-only" checked={active} onChange={() => setIsPublic(opt.value)} />
+                <opt.icon className={cn("mt-0.5 size-4 shrink-0", active ? "text-primary" : "text-ink-faint")} />
+                <span>
+                  <span className="block text-sm font-semibold text-ink">{opt.title}</span>
+                  <span className="block text-xs text-ink-muted">{opt.hint}</span>
+                </span>
+              </label>
+            );
+          })}
+        </div>
+      </fieldset>
 
       {items.length > 0 && (
         <ul className="mt-4 space-y-3">

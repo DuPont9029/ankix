@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Ankix · Trailer</title>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400;1,6..72,500&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=block" rel="stylesheet">
+<style>
+:root { --bg:#0b1214; --ink:#f1f5f9; --muted:#a3b1c2; --faint:#6b7d88; --mint:#4fdbc8; --line-d:#1d2a2f;
+  --serif:"Newsreader",Georgia,serif; --sans:"Plus Jakarta Sans",-apple-system,"Segoe UI",sans-serif; }
+* { box-sizing:border-box; margin:0; padding:0; }
+html,body { background:#000; height:100%; overflow:hidden; }
+body { display:grid; place-items:center; font-family:var(--sans); }
+#stage { position:relative; width:1920px; height:1080px; overflow:hidden; background:var(--bg); flex:none; transform-origin:center; }
+.abs { position:absolute; }
+.scene { position:absolute; inset:0; opacity:0; display:none; }
+#glow { position:absolute; inset:-200px; background:radial-gradient(900px 600px at var(--gx,70%) var(--gy,40%), rgba(79,219,200,.13), transparent 70%), radial-gradient(700px 500px at 15% 85%, rgba(15,91,92,.35), transparent 70%); }
+#rules { position:absolute; inset:0; opacity:.3; background-image:repeating-linear-gradient(to bottom, transparent 0, transparent 47px, var(--line-d) 47px, var(--line-d) 48px); }
+#margin { position:absolute; top:0; bottom:0; left:96px; width:2px; background:rgba(226,120,110,.28); }
+#vignette { position:absolute; inset:0; background:radial-gradient(ellipse at center, transparent 70%, rgba(0,0,0,.35)); pointer-events:none; }
+
+.cap { position:absolute; left:150px; top:235px; width:560px; }
+.cap .k { font:700 20px/1 var(--sans); letter-spacing:.22em; text-transform:uppercase; color:var(--mint); display:flex; align-items:center; gap:16px; }
+.cap .k i { display:block; height:2px; width:44px; background:var(--mint); transform-origin:left; }
+.cap .h { margin-top:28px; font:500 74px/1.04 var(--serif); letter-spacing:-.02em; color:var(--ink); }
+.cap .h .w { display:inline-block; margin-right:.22em; }
+.cap .subs { position:relative; margin-top:32px; }
+.cap .s { position:absolute; left:0; top:0; font:400 27px/1.45 var(--sans); color:var(--muted); width:540px; }
+.cap .s b { color:var(--ink); font-weight:600; }
+.chips { position:absolute; left:150px; top:820px; display:flex; gap:12px; flex-wrap:wrap; width:580px; }
+.chip { font:600 17px/1 var(--sans); color:var(--mint); border:1.5px solid rgba(79,219,200,.35); background:rgba(79,219,200,.06); padding:11px 17px; border-radius:999px; white-space:nowrap; }
+
+.win { position:absolute; left:760px; top:168px; width:1080px; border-radius:18px; background:#f8faf7; overflow:hidden;
+  box-shadow:0 50px 120px -20px rgba(0,0,0,.75), 0 0 0 1px rgba(255,255,255,.07); }
+.win .bar { height:46px; background:#eef1ee; border-bottom:1px solid #e2e4dc; display:flex; align-items:center; gap:9px; padding:0 18px; }
+.win .bar .d { width:12px; height:12px; border-radius:50%; background:#d9dcd8; }
+.win .bar .url { margin-left:16px; flex:1; height:30px; border-radius:9px; background:#fff; border:1px solid #e2e4dc; display:flex; align-items:center; padding:0 14px; font:500 14px var(--sans); color:#6f7979; gap:8px; }
+.win .bar .url b { color:#191c1b; font-weight:600; }
+.win .vp { position:relative; width:1080px; height:675px; overflow:hidden; background:#f8faf7; }
+.win .vp img { position:absolute; left:0; top:0; width:1080px; height:675px; transform-origin:0 0; }
+.skip { position:absolute; right:16px; top:60px; z-index:5; font:700 14px var(--sans); color:#fff; background:rgba(15,91,92,.92); padding:8px 13px; border-radius:999px; opacity:0; letter-spacing:.02em; box-shadow:0 6px 18px rgba(0,0,0,.25); }
+
+#chapters { position:absolute; left:150px; right:80px; bottom:52px; display:flex; gap:10px; opacity:0; }
+#chapters .c { flex:1; }
+#chapters .c .l { height:3px; background:rgba(255,255,255,.1); border-radius:2px; overflow:hidden; }
+#chapters .c .l i { display:block; height:100%; width:0; background:var(--mint); }
+#chapters .c span { display:block; margin-top:11px; font:600 12.5px var(--sans); letter-spacing:.08em; text-transform:uppercase; color:var(--faint); white-space:nowrap; }
+#chapters .c.on span { color:var(--ink); }
+#fade { position:absolute; inset:0; background:#000; opacity:0; z-index:100; pointer-events:none; }
+#hud { position:fixed; left:12px; bottom:10px; color:#777; font:12px var(--sans); }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="glow"></div><div id="rules"></div><div id="margin"></div>
+
+  <div class="scene" id="s-open">
+    <div id="sheets"></div>
+    <div class="abs" style="left:0;right:0;top:330px;text-align:center">
+      <div class="open-l" style="font:500 66px/1.45 var(--sans);letter-spacing:-.01em;color:var(--ink)">Sunday night.</div>
+      <div class="open-l" style="font:500 66px/1.45 var(--sans);letter-spacing:-.01em;color:var(--ink)">120 physiology slides.</div>
+      <div class="open-l" style="font:500 66px/1.45 var(--sans);letter-spacing:-.01em;color:var(--mint)">Exam in three weeks.</div>
+    </div>
+  </div>
+
+  <div class="scene" id="s-logo">
+    <div class="abs" id="logo-ring" style="left:960px;top:400px;width:10px;height:10px;border-radius:50%;border:2px solid var(--mint)"></div>
+    <svg class="abs" id="logo-big" style="left:885px;top:325px;width:150px;height:150px"><use href="#mini-logo"/></svg>
+    <div class="abs" id="logo-word" style="left:0;right:0;top:500px;text-align:center;font:500 170px/1 var(--serif);letter-spacing:-.03em;color:var(--ink)"></div>
+    <div class="abs" id="logo-tag" style="left:0;right:0;top:712px;text-align:center;font:400 34px/1.3 var(--sans);color:var(--muted)">The digital notebook for <span style="color:var(--ink);font-weight:600">medical students</span>.</div>
+  </div>
+
+  <div class="scene" id="s-priv">
+    <div class="abs" style="left:0;right:0;top:330px;text-align:center">
+      <svg id="lock" width="96" height="96" viewBox="0 0 48 48" fill="none" stroke="#4fdbc8" stroke-width="3" stroke-linecap="round"><rect x="10" y="21" width="28" height="21" rx="4"/><path id="shackle" d="M16 21v-6a8 8 0 0 1 16 0v6"/></svg>
+      <div id="priv1" style="font:500 76px/1.15 var(--serif);color:var(--ink);margin-top:30px">Private when you want.</div>
+      <div id="priv2" style="font:500 76px/1.15 var(--serif);color:var(--mint);margin-top:6px">Shared when it helps.</div>
+      <div id="priv3" style="font:400 30px var(--sans);color:var(--muted);margin-top:26px">Materials and decks: you decide who sees them, and you can change your mind any time.</div>
+    </div>
+  </div>
+
+  <div class="scene" id="s-end">
+    <svg class="abs" id="end-logo" style="left:910px;top:120px;width:100px;height:100px"><use href="#mini-logo"/></svg>
+    <div class="abs" id="end-word" style="left:0;right:0;top:245px;text-align:center;font:500 140px/1 var(--serif);letter-spacing:-.03em;color:var(--ink)">Ankix</div>
+    <div class="abs" id="end-tag" style="left:0;right:0;top:420px;text-align:center;font:500 40px var(--sans);letter-spacing:-.01em;color:var(--ink)">From slides to <span style="background:linear-gradient(transparent 58%, rgba(79,219,200,.35) 58%)">flashcards</span>. Nothing to copy by hand.</div>
+    <div class="abs" id="end-feat" style="left:0;right:0;top:500px;text-align:center;font:600 18px var(--sans);letter-spacing:.2em;text-transform:uppercase;color:var(--muted)">Generation · Image occlusion · FSRS-5 · Maps · Oral exam · Anki</div>
+    <div class="abs" id="end-free" style="left:0;right:0;top:585px;text-align:center;font:700 56px/1 var(--sans);letter-spacing:-.01em;color:var(--mint)">Free. Forever.<sup style="font-size:26px;vertical-align:28px;margin-left:4px">*</sup></div>
+    <div class="abs" id="end-cta" style="left:0;right:0;top:690px;text-align:center"><span style="display:inline-block;font:600 24px var(--sans);color:#003731;background:var(--mint);padding:19px 34px;border-radius:999px">Sign in with your university account</span></div>
+    <div class="abs" id="end-by" style="left:0;right:0;top:822px;text-align:center;font:500 24px var(--sans);color:var(--ink)">Created by: <b style="font-weight:700">DuPont9029</b> <span style="color:var(--mint)">||</span> <b style="font-weight:700">David Novelli</b></div>
+    <div class="abs" id="end-url" style="left:0;right:0;top:864px;text-align:center;font:500 18px var(--sans);color:var(--faint)">github.com/DuPont9029/ankix</div>
+    <div class="abs" id="end-fine" style="left:0;right:0;top:1018px;text-align:center;font:500 15px var(--sans);color:var(--faint)">* Offer valid for MedTech students only.</div>
+  </div>
+
+  <div id="apps"></div>
+  <div id="chapters"></div>
+  <div id="vignette"></div>
+  <div id="fade"></div>
+</div>
+<svg width="0" height="0" style="position:absolute"><defs><symbol id="mini-logo" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#0f5b5c"/><rect x="16.5" y="13.5" width="24" height="33" rx="5" fill="#fff" opacity=".4" transform="rotate(-6 28.5 30)"/><rect x="24" y="17" width="24" height="32" rx="5" fill="#fff"/><circle cx="44" cy="21.5" r="2.8" fill="#14b8a6"/><path d="M32 26v14M25 33h14" stroke="#0f5b5c" stroke-width="3.4" stroke-linecap="round"/></symbol></defs></svg>
+<div id="hud"></div>
+<script src="work/timeline.js"></script>
+<script>
+// ───────── timeline (1 battuta = 2,4 s, 100 bpm): letta anche da music.mjs
+const BAR = 2.4;
+const BARS = [3, 2, 3, 6, 3, 6, 3, 2, 5, 6, 10, 3, 2, 4];
+const IDS = ["s-open", "s-logo", "s-auth", "s-mat", "s-ai", "s-gen", "s-occ", "s-plan", "s-study", "s-map", "s-exam", "s-exp", "s-priv", "s-end"];
+const START = []; { let a = 0; for (const b of BARS) { START.push(a); a += b * BAR; } }
+const TOTAL = START.at(-1) + BARS.at(-1) * BAR;
+
+// ───────── scene con l'app vera: clip, URL, didascalie, zoom [t, scala, x, y] in pixel della registrazione (1280×800)
+const APP = {
+  "s-auth": { clip: "auth", url: ["login", 0, "welcome", 2.6, "", 5.6], k: "01 · Sign up", h: "In within ten seconds.",
+    subs: [[0, "Sign in with your university <b>Google</b> account: no new passwords."], [2.8, "The first time, enter the 6-digit <b>class code</b>. It changes every 30 seconds."]],
+    chips: ["Google · GitHub", "University emails only", "TOTP class code"], zoom: [[0, 1.25, 640, 330], [2.4, 1.25, 640, 330], [3.2, 1.35, 640, 300], [5.4, 1.35, 640, 300], [6.0, 1, 640, 400]] },
+  "s-mat": { clip: "materials", url: ["materials", 0], k: "02 · Materials", h: "One library for the class. Or just for you.",
+    subs: [[0, "Slides, handouts and anatomy plates: upload them once and the <b>whole class</b> can use them."], [7.6, "Personal notes stay <b>private</b>: only you can see them, and you can share them whenever you like."]],
+    chips: ["PDF · images · text", "Shared or private"], zoom: [[0, 1, 640, 400], [12.2, 1, 640, 400], [13.2, 1.55, 420, 320], [14.4, 1.55, 420, 320]] },
+  "s-ai": { clip: "settings", url: ["settings", 0], k: "03 · AI engine", h: "Pick your AI.",
+    subs: [[0, "By default, a free AI that runs <b>in your browser</b>. Or bring your own Gemini, Claude, OpenAI or OpenRouter key, stored encrypted."]],
+    chips: ["Gemma 4 on device", "Encrypted keys", "4 cloud providers"], zoom: [[0, 1.2, 560, 330], [7.2, 1.2, 560, 330]] },
+  "s-gen": { clip: "generate", url: ["generate", 0, "decks/…", 8.9], k: "04 · Generation", h: "Flashcards that write themselves.",
+    subs: [[0, "Pick the materials, how many cards, the language and what matters to you: the AI writes <b>exam-style questions and clozes</b>."]],
+    chips: ["No duplicates", "Anki-ready tags"], zoom: [[0, 1, 640, 400]] },
+  "s-occ": { clip: "occlusion", url: ["generate", 0, "decks/…", 3.4], k: "05 · Image occlusion", h: "Plates become quizzes.",
+    subs: [[0, "The AI finds the labels on the plate and masks them: every structure becomes a card."]],
+    chips: ["Native Anki note type"], zoom: [[0, 1, 640, 400], [4.6, 1, 640, 400], [5.5, 1.45, 560, 700], [7.2, 1.45, 560, 700]] },
+  "s-plan": { clip: "plan", url: ["plan", 0], k: "06 · Study plan", h: "A plan that adapts to you.",
+    subs: [[0, "Streaks, real retention and forecasts: the calendar knows what is coming."]],
+    chips: ["Daily streaks", "Exam date per deck"], zoom: [[0, 1.12, 640, 300], [4.8, 1.18, 640, 300]] },
+  "s-study": { clip: "today", url: ["today", 0], k: "07 · Review", h: "Just enough, every day.",
+    subs: [[0, "<b>FSRS-5</b>, the same algorithm as Anki. Your path starts easy, then reviews and new cards."]],
+    chips: ["Again · Hard · Good · Easy", "Image occlusion included"], zoom: [[0, 1, 640, 400], [2, 1.25, 700, 360], [12, 1.25, 700, 360]] },
+  "s-map": { clip: "map", url: ["decks/…/map", 0], k: "08 · Maps", h: "From cards to concept maps.",
+    subs: [[0, "Mind maps and concept maps built from your cards, with a <b>practice mode</b> to fill them in."]],
+    chips: ["Readable propositions", "SVG export"], zoom: [[0, 1, 640, 400], [7.5, 1, 640, 400], [8.5, 1.3, 620, 380], [14.4, 1.3, 620, 380]] },
+  "s-exam": { clip: "exam", url: ["exam", 0, "exam/…", 19.7], k: "09 · Oral exam", h: "Rehearse the oral exam.",
+    subs: [[0, "Random questions on your materials, read out loud. Answer by speaking, one question at a time."], [14.4, "Then a <b>grade out of 30</b>, with mistakes and topics to review: weak spots go straight back into your plan."]],
+    chips: ["Whisper on device too", "Audio is never stored"], zoom: [[0, 1, 640, 400], [5.8, 1, 640, 400], [6.6, 1.3, 760, 420], [18.4, 1.3, 760, 420], [19.3, 1, 640, 400], [20.0, 1.3, 790, 430], [22.0, 1.3, 790, 430], [22.7, 1.1, 700, 400]] },
+  "s-exp": { clip: "export", url: ["decks/…", 0], k: "10 · Share & export", h: "Everything ends up in Anki.",
+    subs: [[0, "Make the deck <b>public</b> for the class, or download it as an <b>.apkg</b> ready for Anki."]],
+    chips: [".apkg or CSV", "No duplicates"], zoom: [[0, 1.2, 640, 250], [7.2, 1.25, 640, 250]] },
+};
+const CH = [["s-auth", "Sign up"], ["s-mat", "Materials"], ["s-ai", "AI engine"], ["s-gen", "Generation"], ["s-occ", "Occlusion"], ["s-plan", "Plan"], ["s-study", "Review"], ["s-map", "Maps"], ["s-exam", "Oral exam"], ["s-exp", "Export"]];
+
+// ───────── utilità
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const cl = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const P = (t, a, b) => cl((t - a) / (b - a));
+const eo = (x) => 1 - Math.pow(1 - x, 3);
+const eo5 = (x) => 1 - Math.pow(1 - x, 5);
+const eio = (x) => (x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
+const back = (x) => { const c1 = 1.5, c3 = c1 + 1; return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2); };
+const lerp = (a, b, x) => a + (b - a) * x;
+const css = (el, o) => { for (const k in o) el.style[k] = o[k]; };
+const show = (el, p, dy = 30) => css(el, { opacity: p, transform: `translateY(${(1 - p) * dy}px)` });
+const H = (html) => { const t = document.createElement("template"); t.innerHTML = html.trim(); return t.content.firstChild; };
+
+// ───────── costruzione delle scene con l'app
+for (const [id, a] of Object.entries(APP)) {
+  const clip = CLIPS[a.clip];
+  // tagli: dove il tempo sorgente salta in avanti più di mezzo secondo
+  a.cuts = [];
+  for (let i = 1; i < clip.src.length; i++) { const jump = clip.src[i] - clip.src[i - 1]; if (jump > 0.6) a.cuts.push([i / 30, Math.round(jump)]); }
+  const el = H(`<div class="scene" id="${id}">
+    <div class="cap"><div class="k"><i></i><span>${a.k}</span></div>
+      <div class="h">${a.h.split(" ").map((w) => `<span class="w">${w}</span>`).join("")}</div>
+      <div class="subs">${a.subs.map(([, s]) => `<div class="s">${s}</div>`).join("")}</div></div>
+    <div class="chips">${a.chips.map((c) => `<span class="chip">${c}</span>`).join("")}</div>
+    <div class="win"><div class="bar"><span class="d"></span><span class="d"></span><span class="d"></span><div class="url">🔒 <span>ankix.vercel.app/<b class="u"></b></span></div></div>
+      <div class="vp"><img alt=""><div class="skip"></div></div></div>
+  </div>`);
+  $("#apps").appendChild(el);
+}
+// telefono con il codice TOTP sulla scena di registrazione
+$("#s-auth").appendChild(H(`<div class="abs" id="phone" style="left:1580px;top:470px;width:250px;height:470px;border-radius:42px;background:#0c1315;border:7px solid #273236;box-shadow:0 40px 90px -10px rgba(0,0,0,.8);opacity:0;overflow:hidden">
+  <div style="width:84px;height:22px;border-radius:13px;background:#000;margin:11px auto 0"></div>
+  <div style="padding:24px 20px 0;font:700 12px var(--sans);letter-spacing:.14em;color:#6b7d88;text-transform:uppercase">Authenticator</div>
+  <div style="margin:12px 12px 0;padding:16px;border-radius:16px;background:#152024">
+    <div style="font:600 13px var(--sans);color:#a3b1c2">Ankix · Medicine</div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-top:8px">
+      <div style="font:600 30px var(--sans);letter-spacing:.04em;white-space:nowrap;color:#4fdbc8;font-variant-numeric:tabular-nums">${CLIPS.auth.code.slice(0, 3)} ${CLIPS.auth.code.slice(3)}</div>
+      <svg width="30" height="30" viewBox="0 0 36 36"><circle cx="18" cy="18" r="14" stroke="#253036" stroke-width="5" fill="none"/><circle id="totp-ring" cx="18" cy="18" r="14" stroke="#4fdbc8" stroke-width="5" fill="none" stroke-dasharray="88" stroke-dashoffset="20" transform="rotate(-90 18 18)" stroke-linecap="round"/></svg>
+    </div></div>
+  <div style="position:absolute;left:0;right:0;bottom:22px;text-align:center;font:500 12.5px var(--sans);color:#6b7d88">Class code<br>from your class rep’s phone</div></div>`));
+$("#chapters").append(...CH.map(([, c]) => H(`<div class="c"><div class="l"><i></i></div><span>${c}</span></div>`)));
+
+// fogli dell'apertura
+const SHEETS = Array.from({ length: 14 }, (_, i) => {
+  const r = (n) => { const x = Math.sin(i * 97.13 + n * 13.7) * 43758.5453; return x - Math.floor(x); };
+  const el = H(`<div class="abs" style="width:190px;height:250px;border-radius:8px;background:#e9ece6;box-shadow:0 20px 40px rgba(0,0,0,.4);padding:22px 18px">
+    <div style="height:10px;width:70%;background:#c9d0cb;border-radius:3px"></div>
+    ${Array.from({ length: 8 }, (_, k) => `<div style="height:6px;width:${60 + r(k + 3) * 35}%;background:#d8ddd8;border-radius:3px;margin-top:${k === 0 ? 20 : 12}px"></div>`).join("")}
+    <div style="position:absolute;right:14px;bottom:12px;font:700 11px var(--sans);color:#9aa5a0">${i + 1} / 120</div></div>`);
+  $("#sheets").appendChild(el);
+  return { el, x: r(1) * 1920 - 95, y: r(2) * 1080 - 125, rot: r(3) * 50 - 25, sp: 0.4 + r(4), z: 0.55 + r(5) * 0.5 };
+});
+$("#logo-word").innerHTML = "Ankix".split("").map((c) => `<span style="display:inline-block">${c}</span>`).join("");
+
+// ───────── animazione delle didascalie
+function caption(sc, lt, dur, subTimes) {
+  const cap = $(".cap", sc); if (!cap) return;
+  const out = 1 - P(lt, dur - 0.45, dur - 0.05);
+  const pk = eo(P(lt, 0.1, 0.7));
+  css($(".k", cap), { opacity: pk * out, transform: `translateX(${(1 - pk) * -24}px)` });
+  $(".k i", cap).style.transform = `scaleX(${eo(P(lt, 0.1, 0.9))})`;
+  $$(".w", cap).forEach((w, i) => { const p = eo5(P(lt, 0.25 + i * 0.07, 1.05 + i * 0.07)); css(w, { opacity: p * out, transform: `translateY(${(1 - p) * 46}px)`, filter: `blur(${(1 - p) * 10}px)` }); });
+  const subs = $$(".s", cap);
+  subs.forEach((s, i) => {
+    const a = subTimes[i] + (i === 0 ? 0.9 : 0), b = subTimes[i + 1] ?? dur;
+    const pin = eo(P(lt, a, a + 0.6)), pout = i < subs.length - 1 ? P(lt, b - 0.35, b) : 0;
+    css(s, { opacity: pin * (1 - pout) * out, transform: `translateY(${(1 - pin) * 18 - pout * 14}px)` });
+  });
+  $$(".chip", sc).forEach((c, i) => { const p = back(P(lt, 1.6 + i * 0.12, 2.2 + i * 0.12)); css(c, { opacity: cl(p) * out, transform: `translateY(${(1 - p) * 20}px)` }); });
+}
+
+function zoomAt(keys, t) {
+  let a = keys[0], b = keys[0];
+  for (let i = 0; i < keys.length; i++) { if (keys[i][0] <= t) { a = keys[i]; b = keys[i + 1] ?? keys[i]; } }
+  const p = b === a ? 0 : eio(P(t, a[0], b[0]));
+  return [lerp(a[1], b[1], p), lerp(a[2], b[2], p), lerp(a[3], b[3], p)];
+}
+
+const pending = [];
+function updateApp(id, el, lt, dur) {
+  const a = APP[id], clip = CLIPS[a.clip];
+  caption(el, lt, dur, a.subs.map(([t]) => t));
+  const win = $(".win", el);
+  const p = eo5(P(lt, 0.15, 1.15)), q = P(lt, dur - 0.45, dur - 0.05);
+  css(win, { opacity: cl(p) * (1 - q), transform: `translate(${(1 - p) * 80}px, ${(1 - p) * 30}px) perspective(2400px) rotateY(${(1 - p) * -10}deg) scale(${1 - q * 0.03})` });
+  const i = Math.min(clip.frames.length - 1, Math.max(0, Math.round(lt * 30)));
+  const img = $("img", el);
+  if (img.dataset.src !== clip.frames[i]) {
+    img.dataset.src = clip.frames[i];
+    img.src = clip.frames[i];
+    pending.push(img.decode().catch(() => {}));
+  }
+  const [s, fx, fy] = zoomAt(a.zoom, lt);
+  const d = 1080 / 1280, W = 1080, Hh = 675;
+  const tx = cl(W / 2 - fx * d * s, W - W * s, 0), ty = cl(Hh / 2 - fy * d * s, Hh - Hh * s, 0);
+  img.style.transform = `translate(${tx}px, ${ty}px) scale(${s})`;
+  let url = a.url[0];
+  for (let k = 0; k < a.url.length; k += 2) if (lt >= a.url[k + 1]) url = a.url[k];
+  $(".u", el).textContent = url;
+  // badge sulle attese tagliate
+  const skip = $(".skip", el);
+  const cut = a.cuts.find(([t]) => lt >= t - 0.05 && lt < t + 1.1);
+  if (cut) { skip.textContent = `⏩ ${cut[1]} s`; skip.style.opacity = Math.min(P(lt, cut[0] - 0.05, cut[0] + 0.15), 1 - P(lt, cut[0] + 0.8, cut[0] + 1.1)); }
+  else skip.style.opacity = 0;
+  if (id === "s-auth") {
+    const ph = eo5(P(lt, 2.7, 3.4)) * (1 - eio(P(lt, 5.3, 5.9)));
+    css($("#phone"), { opacity: cl(ph * 1.4), transform: `translate(${(1 - ph) * 140}px, ${(1 - ph) * 40}px) rotate(${(1 - ph) * 10 + 4}deg)` });
+    $("#totp-ring").setAttribute("stroke-dashoffset", (88 * cl((lt - 2.7) / 30 + 0.3)).toFixed(1));
+  }
+}
+
+const UPDATE = {
+  "s-open"(t) {
+    $$(".open-l").forEach((l, i) => { const a = 0.4 + i * 1.5, p = eo(P(t, a, a + 1.1)), q = eio(P(t, 5.4, 6.4)); css(l, { opacity: p * (1 - q), transform: `translateY(${(1 - p) * 30 - q * 20}px)`, filter: `blur(${(1 - p) * 8 + q * 10}px)` }); });
+    const conv = eio(P(t, 5.6, 7.2));
+    SHEETS.forEach((s, i) => {
+      const x = s.x + Math.sin(t * 0.4 * s.sp + i) * 30, y = s.y - t * 18 * s.sp;
+      css(s.el, { transform: `translate(${lerp(x, 865, conv)}px, ${lerp(y, 415, conv)}px) rotate(${lerp(s.rot + t * 3 * s.sp, 0, conv)}deg) scale(${lerp(s.z, 0.05, conv)})`, opacity: cl(P(t, 0, 1.2) * 0.32 + conv * 0.6) * (1 - P(t, 6.8, 7.2)), filter: `blur(${(1 - s.z) * 6 * (1 - conv)}px)` });
+    });
+  },
+  "s-logo"(t, d) {
+    const p = back(P(t, 0, 0.8));
+    css($("#logo-big"), { transform: `scale(${lerp(0.2, 1, p)}) rotate(${(1 - eo(P(t, 0, 0.8))) * -25}deg)`, opacity: cl(p * 2) });
+    const r = eo(P(t, 0.05, 1.6));
+    css($("#logo-ring"), { transform: `translate(-50%,-50%) scale(${r * 90})`, opacity: (1 - r) * 0.7 });
+    $$("#logo-word span").forEach((s, i) => { const q = eo5(P(t, 0.5 + i * 0.07, 1.3 + i * 0.07)); css(s, { opacity: q, transform: `translateY(${(1 - q) * 60}px)`, filter: `blur(${(1 - q) * 12}px)` }); });
+    show($("#logo-tag"), eo(P(t, 1.3, 2.1)), 24);
+    css($("#s-logo"), { transform: `scale(${1 + eio(P(t, d - 0.6, d)) * 0.08})` });
+  },
+  "s-priv"(t, d) {
+    const lk = eo5(P(t, 0.1, 0.8)), open = eio(P(t, 1.6, 2.2));
+    css($("#lock"), { opacity: lk, transform: `scale(${0.7 + lk * 0.3})` });
+    $("#shackle").setAttribute("transform", `translate(${open * 12} ${-open * 6}) rotate(${open * 25} 32 21)`);
+    show($("#priv1"), eo5(P(t, 0.3, 1.0)), 40);
+    show($("#priv2"), eo5(P(t, 1.5, 2.2)), 40);
+    show($("#priv3"), eo5(P(t, 2.4, 3.1)), 20);
+    css(this, { filter: `blur(${eio(P(t, d - 0.5, d)) * 10}px)` });
+  },
+  "s-end"(t) {
+    const l = back(P(t, 0.1, 0.8)); css($("#end-logo"), { transform: `scale(${l})`, opacity: cl(l * 2) });
+    show($("#end-word"), eo5(P(t, 0.4, 1.3)), 50);
+    show($("#end-tag"), eo5(P(t, 1.2, 2.0)), 30);
+    show($("#end-feat"), eo(P(t, 1.8, 2.6)), 16);
+    const f = back(P(t, 2.6, 3.3)); css($("#end-free"), { opacity: cl(f), transform: `scale(${0.85 + f * 0.15})` });
+    const c = back(P(t, 3.4, 4.0)); css($("#end-cta"), { opacity: cl(c), transform: `scale(${0.8 + c * 0.2})` });
+    show($("#end-by"), eo(P(t, 4.4, 5.1)), 12);
+    show($("#end-url"), eo(P(t, 4.8, 5.4)), 10);
+    show($("#end-fine"), eo(P(t, 5.0, 5.6)), 6);
+  },
+};
+
+function renderAt(T) {
+  T = cl(T, 0, TOTAL - 1e-3);
+  IDS.forEach((id, i) => {
+    const el = document.getElementById(id), s = START[i], d = BARS[i] * BAR;
+    if (!(T >= s - 0.001 && T < s + d)) { el.style.display = "none"; return; }
+    el.style.display = "block";
+    const lt = T - s;
+    el.style.opacity = (i === 0 ? P(lt, 0, 0.6) : P(lt, 0, 0.25)) * (1 - P(lt, d - 0.12, d));
+    if (APP[id]) updateApp(id, el, lt, d); else UPDATE[id].call(el, lt, d);
+  });
+  const first = IDS.indexOf("s-auth"), last = IDS.indexOf("s-exp");
+  const a = START[first], b = START[last] + BARS[last] * BAR;
+  css($("#chapters"), { opacity: P(T, a + 0.4, a + 1.2) * (1 - P(T, b - 0.5, b)) });
+  $$("#chapters .c").forEach((c, k) => { const i = IDS.indexOf(CH[k][0]), s = START[i], d = BARS[i] * BAR; $("i", c).style.width = P(T, s, s + d) * 100 + "%"; c.classList.toggle("on", T >= s && T < s + d); });
+  $("#glow").style.setProperty("--gx", 60 + Math.sin(T * 0.13) * 15 + "%");
+  $("#glow").style.setProperty("--gy", 40 + Math.cos(T * 0.11) * 12 + "%");
+  $("#rules").style.transform = `translateY(${-(T * 6) % 48}px)`;
+  $("#fade").style.opacity = Math.max(1 - P(T, 0, 0.8), P(T, TOTAL - 1.2, TOTAL));
+}
+window.seek = async (T) => { pending.length = 0; renderAt(T); await Promise.all(pending); };
+window.TOTAL = TOTAL;
+
+const params = new URLSearchParams(location.search);
+function fit() { $("#stage").style.transform = `scale(${Math.min(innerWidth / 1920, innerHeight / 1080)})`; }
+if (params.has("render")) { $("#hud").remove(); document.body.style.display = "block"; renderAt(0); }
+else {
+  addEventListener("resize", fit); fit();
+  let t0 = performance.now() - (parseFloat(params.get("t")) || 0) * 1000, paused = false, pt = 0;
+  addEventListener("keydown", (e) => {
+    if (e.code === "Space") { paused = !paused; if (paused) pt = (performance.now() - t0) / 1000; else t0 = performance.now() - pt * 1000; }
+    if (e.code === "ArrowRight") t0 -= 5000; if (e.code === "ArrowLeft") t0 += 5000;
+  });
+  document.fonts.ready.then(() => { t0 = performance.now() - (parseFloat(params.get("t")) || 0) * 1000; (function loop() {
+    const T = paused ? pt : ((performance.now() - t0) / 1000) % TOTAL; renderAt(T);
+    $("#hud").textContent = `${T.toFixed(1)}s / ${TOTAL.toFixed(1)}s · spazio pausa · ← → 5s`;
+    requestAnimationFrame(loop);
+  })(); });
+}
+</script>
+</body>
+</html>

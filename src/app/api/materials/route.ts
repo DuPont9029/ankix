@@ -8,8 +8,8 @@ import { headObject, isMaterialKeyFor } from "@/lib/s3";
 export const dynamic = "force-dynamic";
 
 export const GET = handle(async () => {
-  await requireUser();
-  return NextResponse.json({ materials: await listMaterials() });
+  const user = await requireUser();
+  return NextResponse.json({ materials: await listMaterials(user.id) });
 });
 
 const FinalizeBody = MaterialMeta.extend({
@@ -39,6 +39,7 @@ export const POST = handle(async (req: Request) => {
     sizeBytes: head.size,
     uploadedBy: user.name,
     uploadedById: user.id,
+    isPublic: body.isPublic,
     createdAt: Date.now(),
     s3Key: body.key,
   };

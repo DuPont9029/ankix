@@ -41,13 +41,35 @@ function toMaterial(r: Row): Material {
     sizeBytes: num(r.size_bytes),
     uploadedBy: str(r.uploaded_by),
     uploadedById: r.uploaded_by_id == null ? null : str(r.uploaded_by_id),
+    // I materiali caricati prima dell'introduzione della visibilità erano tutti condivisi.
+    isPublic: r.is_public !== false,
     createdAt: num(r.created_at),
   };
 }
 
-export async function listMaterials(): Promise<Material[]> {
-  const rows = await query(`SELECT * FROM materials ORDER BY created_at DESC`);
+/** Materiali che l'utente vede in libreria: quelli condivisi con la classe e i suoi privati. */
+export async function listMaterials(userId: string): Promise<Material[]> {
+  const rows = await query(`SELECT * FROM materials WHERE is_public = true OR uploaded_by_id = $1 ORDER BY created_at DESC`, [userId]);
   return rows.map(toMaterial);
+}
+
+/** Può usarlo per generare, interrogarsi o scaricarlo: è condiviso oppure l'ha caricato lui. */
+export function canUseMaterial(material: Material, userId: string): boolean {
+  return material.isPublic || material.uploadedById === userId;
+}
+
+/**
+ * Può vederne il file: oltre ai materiali utilizzabili, le immagini private usate come tavole di image occlusion
+ * in un mazzo che l'utente può aprire (altrimenti le card di un mazzo pubblico resterebbero senza immagine).
+ */
+export async function canSeeMaterial(material: Material, userId: string): Promise<boolean> {
+  if (canUseMaterial(material, userId)) return true;
+  const rows = await query(
+    `SELECT 1 FROM cards c JOIN decks d ON d.id = c.deck_id
+     WHERE c.image_material_id = $1 AND (d.is_public = true OR d.created_by_id = $2) LIMIT 1`,
+    [material.id, userId],
+  );
+  return rows.length > 0;
 }
 
 export async function getMaterial(id: string): Promise<(Material & { s3Key: string }) | null> {
@@ -55,21 +77,26 @@ export async function getMaterial(id: string): Promise<(Material & { s3Key: stri
   return row ? { ...toMaterial(row), s3Key: str(row.s3_key) } : null;
 }
 
-export async function getMaterialsByIds(ids: string[]): Promise<(Material & { s3Key: string })[]> {
+/** Con `userId` restituisce solo i materiali che quell'utente può usare (condivisi o suoi). */
+export async function getMaterialsByIds(ids: string[], userId?: string): Promise<(Material & { s3Key: string })[]> {
   const out: (Material & { s3Key: string })[] = [];
   for (const id of ids) {
     const m = await getMaterial(id);
-    if (m) out.push(m);
+    if (m && (userId === undefined || canUseMaterial(m, userId))) out.push(m);
   }
   return out;
 }
 
 export async function insertMaterial(m: Material & { s3Key: string }): Promise<void> {
   await exec(
-    `INSERT INTO materials (id, title, subject, filename, mime_type, size_bytes, s3_key, uploaded_by, uploaded_by_id, created_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-    [m.id, m.title, m.subject, m.filename, m.mimeType, m.sizeBytes, m.s3Key, m.uploadedBy, m.uploadedById, m.createdAt],
+    `INSERT INTO materials (id, title, subject, filename, mime_type, size_bytes, s3_key, uploaded_by, uploaded_by_id, is_public, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+    [m.id, m.title, m.subject, m.filename, m.mimeType, m.sizeBytes, m.s3Key, m.uploadedBy, m.uploadedById, m.isPublic, m.createdAt],
   );
+}
+
+export async function setMaterialVisibility(id: string, isPublic: boolean): Promise<void> {
+  await exec(`UPDATE materials SET is_public = $1 WHERE id = $2`, [isPublic, id]);
 }
 
 export async function deleteMaterial(id: string): Promise<void> {
@@ -376,7 +403,7 @@ export async function copyDeck(source: Deck, owner: { id: string; name: string }
 
 export async function stats(userId: string): Promise<{ materials: number; decks: number; cards: number }> {
   const [row] = await query(
-    `SELECT (SELECT count(*) FROM materials) AS materials,
+    `SELECT (SELECT count(*) FROM materials WHERE is_public = true OR uploaded_by_id = $1) AS materials,
             (SELECT count(*) FROM decks WHERE created_by_id = $1) AS decks,
             (SELECT count(*) FROM cards c JOIN decks d ON d.id = c.deck_id WHERE d.created_by_id = $1) AS cards`,
     [userId],

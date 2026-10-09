@@ -3,7 +3,7 @@ import { z } from "zod";
 import { hasCloze } from "./cloze";
 import { HttpError } from "./http";
 import { OCCLUSION_IMAGE_TYPES } from "./files";
-import { getMaterial, type CardInput } from "./repo";
+import { canSeeMaterial, getMaterial, type CardInput } from "./repo";
 import { sanitizeField, sanitizeTags } from "./sanitize";
 import type { Choice, Occlusion } from "./types";
 
@@ -88,10 +88,10 @@ export function toCardInput(body: z.infer<typeof CardBody>): CardInput {
   return { type: body.type, front, back: body.type === "cloze" ? "" : back, extra, tags };
 }
 
-/** Per le card image occlusion: l'immagine deve esistere ed essere PNG, JPG o WEBP. */
-export async function assertOcclusionImage(input: CardInput): Promise<void> {
+/** Per le card image occlusion: l'immagine deve esistere, essere visibile all'utente ed essere PNG, JPG o WEBP. */
+export async function assertOcclusionImage(input: CardInput, userId: string): Promise<void> {
   if (input.type !== "image_occlusion") return;
   const material = input.imageMaterialId ? await getMaterial(input.imageMaterialId) : null;
-  if (!material) throw new HttpError(400, "The image for this card no longer exists.");
+  if (!material || !(await canSeeMaterial(material, userId))) throw new HttpError(400, "The image for this card no longer exists.");
   if (!OCCLUSION_IMAGE_TYPES.includes(material.mimeType)) throw new HttpError(400, "Image occlusion works with PNG, JPG or WEBP images.");
 }

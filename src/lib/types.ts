@@ -25,6 +25,8 @@ export type Material = {
   sizeBytes: number;
   uploadedBy: string;
   uploadedById: string | null;
+  /** Visibile a tutta la classe; se false solo chi l'ha caricato lo vede e lo usa */
+  isPublic: boolean;
   createdAt: number;
 };
 
