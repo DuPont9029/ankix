@@ -5,7 +5,7 @@
 **Upload your lecture slides, get a study-ready deck.**<br/>
 Built by medical students, for medical students.
 
-[![Live](https://img.shields.io/badge/try_it-ankix.vercel.app-0f5b5c?style=for-the-badge&logo=vercel&logoColor=white)](https://ankix.vercel.app)
+[![Live](https://img.shields.io/badge/try_it-ankix.app-0f5b5c?style=for-the-badge&logo=vercel&logoColor=white)](https://ankix.app)
 
 [![Stars](https://img.shields.io/github/stars/DuPont9029/ankix?style=flat-square&color=0f5b5c)](https://github.com/DuPont9029/ankix/stargazers)
 [![Forks](https://img.shields.io/github/forks/DuPont9029/ankix?style=flat-square&color=0f5b5c)](https://github.com/DuPont9029/ankix/network/members)
